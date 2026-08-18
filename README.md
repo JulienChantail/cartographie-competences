@@ -1,93 +1,117 @@
-# cartographie-competences
+# Cartographie des compétences DBA
 
+Application web interne permettant à une équipe DBA de cartographier les
+compétences de ses membres : suivi des compétences par personne (technologie
+/ domaine / version / niveau), recherche de profils, workflow de demande et
+de validation des changements, historique des décisions, questionnaire
+d'auto-évaluation et synthèse de la couverture d'équipe.
 
+## Fonctionnalités principales
 
-## Getting started
+- **Gestion des profils** : création de personnes, consultation de leurs compétences, visualisation en graphe.
+- **Recherche de profils** par critères (technologie, domaine, version, niveau).
+- **Workflow de demande / validation** : toute création ou modification de compétence passe par une demande (`AuditEvent`) qu'un administrateur valide ou rejette avant qu'elle ne s'applique réellement dans la base.
+- **Questionnaire d'auto-évaluation** : une personne déclare plusieurs compétences en une seule fois.
+- **Historique** complet des demandes et décisions, filtrable.
+- **Synthèse d'équipe** : vue de couverture des compétences.
+- **Gestion des utilisateurs et des rôles** (`ADMIN` / `USER`), avec protection du dernier compte administrateur.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Stack technique
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+| Composant           | Technologie                                     |
+|----------------------|--------------------------------------------------|
+| Backend              | Python 3.12 / FastAPI 0.115                        |
+| Base de données      | Neo4j 2026.03 (base de graphe)                       |
+| Driver Neo4j         | `neo4j` 5.24 (protocole Bolt)                          |
+| Frontend             | HTML / CSS / JavaScript natif (aucun framework, aucun build) |
+| Reverse proxy        | Nginx (point d'entrée unique, port 80)                   |
+| Conteneurisation     | Docker / Docker Compose (4 services)                       |
 
-## Add your files
+Aucune base de données relationnelle, aucun framework JS (React/Vue/Angular),
+aucun système de build (npm/webpack) : le frontend est constitué de pages
+HTML statiques servies telles quelles.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Démarrage rapide (poste de développement)
+
+Prérequis : Docker Desktop installé et démarré (voir le guide d'installation
+pour le détail complet, notamment sous Windows/WSL2).
+
+```powershell
+docker compose up --build -d
+```
+
+Puis ouvrir **http://localhost** dans le navigateur.
+
+Pour une installation complète depuis un poste totalement vierge (y compris
+la création du tout premier compte administrateur et le peuplement des
+données de référence), et pour la mise en production sur un serveur, suivre
+impérativement le [guide d'installation](docs/GUIDE_INSTALLATION.md) — le
+simple `docker compose up` ci-dessus ne suffit pas à obtenir une application
+utilisable sur une base Neo4j vide.
+
+## Documentation
+
+Toute la documentation du projet est centralisée dans le dossier
+[`docs/`](docs/), en trois guides complémentaires :
+
+| Guide | Contenu | Public |
+|---|---|---|
+| [Guide d'installation](docs/GUIDE_INSTALLATION.md) | Installer et configurer l'application de zéro sur un poste de développement, puis la déployer sur un serveur de production. | Toute personne devant (re)monter l'environnement. |
+| [Guide d'utilisation et d'administration](docs/GUIDE_UTILISATION_ADMINISTRATION.md) | Fonctionnement de l'application au quotidien, administration (utilisateurs, validations, sauvegardes), gestion des images Docker et procédures de mise à jour (dont Neo4j). | Utilisateurs finaux et administrateurs applicatifs/serveur. |
+| [Guide d'architecture](docs/GUIDE_ARCHITECTURE.md) | Architecture globale puis détail fichier par fichier du code (backend et frontend), pour savoir où et comment intervenir lors d'une évolution. | Développeurs amenés à faire évoluer le code. |
+
+## Structure du dépôt
 
 ```
-cd existing_repo
-git remote add origin http://deserve.corp.capgemini.com/gitlab/data_engineering_services/cartographie-competences.git
-git branch -M main
-git push -uf origin main
+Projet_cartographie_competences/
+├── README.md                 # ce fichier
+├── docker-compose.yml         # orchestration des 4 services (neo4j, backend, frontend, proxy)
+├── .env.example                # modèle des variables d'environnement (à copier en .env)
+│
+├── backend/                    # API FastAPI (Python)
+│   ├── main.py                   # point d'entrée : CORS, cycle de vie, montage des routes
+│   ├── database.py                # connexion Neo4j, fonctions run_read / run_write
+│   ├── models.py                   # schémas de données (Pydantic)
+│   ├── utils.py                     # fonctions transverses (validation email, etc.)
+│   ├── auth_deps.py                  # vérification d'identité et de rôle
+│   ├── security.py                    # scaffolding JWT (préparé, non branché)
+│   ├── requirements.txt                # dépendances Python
+│   ├── Dockerfile                       # image Docker du backend
+│   └── routers/                          # une route FastAPI par domaine métier
+│
+├── frontend/                   # pages HTML statiques + JS partagé
+│   ├── *.html                    # une page par fonctionnalité
+│   ├── common.js                   # session, garde de connexion, dialogues
+│   ├── style.css                     # feuille de style unique
+│   └── Dockerfile                      # image Docker (Nginx statique)
+│
+├── proxy/                      # reverse proxy Nginx, point d'entrée unique (port 80)
+│   ├── nginx.conf
+│   └── Dockerfile
+│
+├── scripts/                    # scripts d'exploitation
+│   ├── init_server.sh             # bootstrap d'un serveur (copie .env + démarrage)
+│   ├── backup_neo4j.sh             # sauvegarde de la base Neo4j
+│   └── restore_neo4j.sh             # restauration d'une sauvegarde
+│
+└── docs/                       # documentation (les 3 guides listés ci-dessus)
 ```
 
-## Integrate with your tools
+Le détail complet et commenté de chaque fichier est dans le
+[guide d'architecture](docs/GUIDE_ARCHITECTURE.md).
 
-* [Set up project integrations](http://deserve.corp.capgemini.com/gitlab/data_engineering_services/cartographie-competences/-/settings/integrations)
+## Statut sécurité
 
-## Collaborate with your team
+Application à **usage interne exclusivement** (pas d'exposition à des
+utilisateurs externes) :
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+- Le contrôle d'accès repose sur un header `X-User` transmis par le
+  frontend, non signé cryptographiquement.
+- Les mots de passe sont stockés **en clair** dans Neo4j.
+- Un scaffolding JWT existe (`backend/security.py`) mais n'est pas branché
+  dans l'application ; il est prêt à être activé si le besoin de renforcer
+  l'authentification apparaît.
 
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Ces choix sont assumés pour ce contexte d'usage restreint. Le détail complet
+des limites et de la piste d'évolution est décrit dans le
+[guide d'architecture](docs/GUIDE_ARCHITECTURE.md#8-authentification-et-autorisation-en-détail).
