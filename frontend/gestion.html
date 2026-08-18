@@ -1,0 +1,298 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gestion — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Gestion des compétences</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html" class="active">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+<main>
+
+  <!-- ✅ CREATION PERSONNE -->
+  <section class="card">
+    <h2>Ajouter une personne</h2>
+    <div class="form-grid">
+      <input id="personne-nom" placeholder="Nom complet" />
+      <button id="create-person-btn" class="btn btn-primary">Créer</button>
+    </div>
+  </section>
+
+  <!-- ✅ CREATION TECHNO -->
+  <section class="card">
+    <h2>Ajouter une nouvelle compétence</h2>
+    <div class="form-grid">
+
+      <div class="field">
+        <label>Catégorie existante</label>
+        <select id="new-category-select"></select>
+      </div>
+
+      <div class="field">
+        <label>OU nouvelle catégorie</label>
+        <input id="new-category-input" placeholder="Ex: DevOps / Cloud / Data" />
+      </div>
+
+      <div class="field">
+        <label>Type</label>
+        <select id="new-type-select">
+          <option value="">-- Sélectionner --</option>
+          <option value="SGBD">SGBD</option>
+          <option value="AUTRE">AUTRE</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Nom de la techno</label>
+        <input id="new-techno-name" placeholder="Ex: Terraform / Redis" />
+      </div>
+
+      <button id="create-techno-btn" class="btn btn-primary">Créer la compétence</button>
+      <span id="techno-status" class="muted"></span>
+
+    </div>
+  </section>
+
+  <!-- ✅ DEMANDE -->
+  <section class="card">
+    <h2>Soumettre une demande</h2>
+
+    <div class="form-grid">
+      <select id="personne-select"></select>
+      <select id="category-select"></select>
+      <select id="techno-select"></select>
+      <select id="domaine-select"></select>
+
+      <!-- ✅ VERSION OPTIONNELLE -->
+      <select id="version-select">
+        <option value="">-- (Optionnel) Version --</option>
+      </select>
+
+      <select id="niveau-select">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+      </select>
+
+      <input id="desc-input" placeholder="Description" />
+      <button id="submit-request-btn" class="btn btn-primary">Soumettre</button>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  <p>Cartographie DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-User": currentUser,
+      ...(options.headers || {})
+    }
+  }).then(async r => {
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(text || r.status);
+    }
+    return r.json();
+  });
+}
+
+/* LOAD */
+async function loadAll() {
+  const [people, cats, doms, vers] = await Promise.all([
+    fetchJson(`${API_BASE_URL}/personnes`),
+    fetchJson(`${API_BASE_URL}/ref/techno-categories`),
+    fetchJson(`${API_BASE_URL}/ref/domaines`),
+    fetchJson(`${API_BASE_URL}/ref/versions`)
+  ]);
+
+  fill("personne-select", people);
+  fill("category-select", cats);
+  fill("new-category-select", cats);
+  fill("domaine-select", doms);
+
+  // ✅ version avec option vide incluse
+  fill("version-select", vers);
+}
+
+/* UTIL */
+function fill(id, data) {
+  const el = document.getElementById(id);
+
+  // ✅ garder le placeholder si version
+  if (id !== "version-select") {
+    el.innerHTML = `<option value="">-- Sélectionner --</option>`;
+  }
+
+  data.forEach(x => {
+    const o = document.createElement("option");
+    o.value = x.nom;
+    o.textContent = x.nom;
+    el.appendChild(o);
+  });
+}
+
+/* CREATE PERSON */
+document.getElementById("create-person-btn").onclick = async () => {
+  const nom = document.getElementById("personne-nom").value.trim();
+
+  if (!nom) {
+    await showAlert("Nom requis");
+    return;
+  }
+
+  await fetchJson(`${API_BASE_URL}/personnes`, {
+    method: "POST",
+    body: JSON.stringify({ nom })
+  });
+
+  document.getElementById("personne-nom").value = "";
+  loadAll();
+};
+
+/* CREATE TECHNO */
+document.getElementById("create-techno-btn").onclick = async () => {
+
+  const catSelect = document.getElementById("new-category-select").value;
+  const catInput = document.getElementById("new-category-input").value.trim();
+  const type = document.getElementById("new-type-select").value;
+  const techno = document.getElementById("new-techno-name").value.trim();
+
+  const category = catInput || catSelect;
+
+  if (!category || !type || !techno) {
+    await showAlert("Merci de remplir catégorie, type et techno");
+    return;
+  }
+
+  await fetchJson(`${API_BASE_URL}/ref/technos`, {
+    method: "POST",
+    body: JSON.stringify({
+      nom: techno,
+      category: category,
+      type: type
+    })
+  });
+
+  document.getElementById("techno-status").textContent = "✅ Demande envoyée (en attente de validation)";
+
+  document.getElementById("new-techno-name").value = "";
+  document.getElementById("new-category-input").value = "";
+
+  loadAll();
+};
+
+/* ✅ DEMANDE */
+document.getElementById("submit-request-btn").onclick = async () => {
+
+  const personne = document.getElementById("personne-select").value;
+  const techno = document.getElementById("techno-select").value;
+  const domaine = document.getElementById("domaine-select").value;
+  const versionRaw = document.getElementById("version-select").value;
+
+  // ✅ version optionnelle
+  const version = versionRaw || "N/A";
+
+  if (!personne || !techno || !domaine) {
+    await showAlert("Personne, techno et domaine sont obligatoires");
+    return;
+  }
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(personne)}/competences/demandes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          techno: techno,
+          domaine: domaine,
+          version: version,
+          niveau: parseInt(document.getElementById("niveau-select").value),
+          description: document.getElementById("desc-input").value
+        })
+      }
+    );
+
+    await showAlert("✅ Demande envoyée");
+
+  } catch (err) {
+    await showAlert("Erreur : " + err.message);
+  }
+};
+
+/* CATEGORY → TECHNO */
+document.getElementById("category-select").onchange = async (e) => {
+  const techs = await fetchJson(
+    `${API_BASE_URL}/ref/technos?category=${encodeURIComponent(e.target.value)}`
+  );
+  fill("techno-select", techs);
+};
+
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+loadAll();
+</script>
+
+</body>
+</html>

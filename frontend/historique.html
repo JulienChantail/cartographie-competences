@@ -1,0 +1,625 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Historique — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Historique</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html" class="active">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+
+<main>
+
+  <!-- Filtres -->
+  <section class="card">
+    <h2>Filtres</h2>
+    <p class="muted" style="margin-top:-6px;">
+      L’historique trace les changements avec <strong>auteur</strong>, <strong>date</strong>, <strong>avant/après</strong>
+      et <strong>statut</strong> (Proposé / Validé / Refusé).
+    </p>
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="personne-filter">Personne (optionnel)</label>
+        <select id="personne-filter">
+          <option value="">-- Toutes --</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="techno-filter">Techno (optionnel)</label>
+        <select id="techno-filter">
+          <option value="">-- Toutes --</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="status-filter">Statut</label>
+        <select id="status-filter">
+          <option value="">-- Tous --</option>
+          <option value="PROPOSED">⏳ En attente</option>
+          <option value="VALIDATED">✅ Validé</option>
+          <option value="REJECTED">❌ Refusé</option>
+          <option value="QUESTIONNAIRE_REQUEST">
+  📋 Ajout de profil via questionnaire
+</option>
+
+<option value="PERSON_CREATE">
+  👤 Création de profil
+</option>
+
+<option value="TECHNO_CREATE">
+  💻 Création de technologie
+</option>
+
+<option value="COMPETENCE_REQUEST">
+  🧩 Modification de compétence
+</option>
+
+<option value="COMPETENCE_DELETE">
+  🗑️ Suppression de compétence
+</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="type-filter">Type (optionnel)</label>
+        <select id="type-filter">
+          <option value="">-- Tous --</option>
+          <option value="COMPETENCE_UPSERT">COMPETENCE_UPSERT</option>
+          <option value="COMPETENCE_DELETE">COMPETENCE_DELETE</option>
+          <option value="PERSON_CREATE">PERSON_CREATE</option>
+          <option value="PERSON_DELETE">PERSON_DELETE</option>
+          <option value="REF_CREATE">REF_CREATE</option>
+          <option value="VALIDATION_DECISION">VALIDATION_DECISION</option>
+          <option value="COMPETENCE_REQUEST">COMPETENCE_REQUEST</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="from-date">Du (date)</label>
+        <input id="from-date" type="date" />
+      </div>
+
+      <div class="field">
+        <label for="to-date">Au (date)</label>
+        <input id="to-date" type="date" />
+      </div>
+
+      <div class="field">
+        <label for="limit">Limite</label>
+        <select id="limit">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+
+      <div class="field actions">
+        <button id="search-btn" class="btn btn-primary" type="button">Rechercher</button>
+        <button id="reset-btn" class="btn btn-secondary" type="button">Réinitialiser</button>
+        <button id="export-btn" class="btn btn-ghost" type="button">Exporter CSV</button>
+      </div>
+    </div>
+
+    <!-- Warning API (gardé, mais stylé via classes) -->
+    <div id="api-warning" class="card" style="display:none; margin-top:12px;">
+      <h3 class="mt-0">Info</h3>
+      <p class="muted mb-0">
+        L’endpoint <code>/historique</code> n’est pas disponible (encore).
+        Cette page fonctionne dès que tu ajoutes les endpoints d’historique côté API.
+      </p>
+    </div>
+  </section>
+
+  <!-- Résultats -->
+  <section class="card">
+    <h2>Résultats</h2>
+
+    <div id="results-info" class="muted" style="margin-bottom:10px;">
+      Aucune recherche lancée.
+    </div>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Auteur</th>
+            <th>Personne</th>
+            <th>Objet</th>
+            <th>Modification</th>
+            <th>Statut</th>
+            <th>Validé par</th>
+            <th>Décision</th>
+            <th>Commentaire de validation /refus</th>
+          </tr>
+        </thead>
+
+        <tbody id="results-body">
+          <tr><td colspan="9">Lance une recherche.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+let CURRENT_ROWS = [];
+
+/* ================================
+   Helpers
+================================ */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("fr-FR");
+}
+
+function pill(status) {
+  const s = (status || "").toUpperCase();
+
+  if (s === "PROPOSED")
+    return `<span class="pill proposed">⏳ En attente</span>`;
+
+  if (s === "VALIDATED")
+    return `<span class="pill validated">✅ Validé</span>`;
+
+  if (s === "REJECTED")
+    return `<span class="pill rejected">❌ Refusé</span>`;
+
+  return `<span class="pill">${escapeHtml(status || "-")}</span>`;
+}
+
+function getEventTypeLabel(type) {
+
+  switch (type) {
+
+    case "QUESTIONNAIRE_REQUEST":
+      return "📋 Ajout de profil via questionnaire";
+
+    case "COMPETENCE_REQUEST":
+      return "🧩 Demande de modification de compétence";
+
+    case "PERSON_CREATE":
+      return "👤 Création de profil";
+
+    case "PERSON_DELETE":
+      return "🗑️ Suppression de profil";
+
+    case "TECHNO_CREATE":
+      return "💻 Création de technologie";
+
+    case "COMPETENCE_DELETE":
+      return "🗑️ Suppression de compétence";
+
+    default:
+      return type || "-";
+  }
+}
+
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-User": currentUser   // ✅ FIX CRUCIAL
+    }
+  });
+
+  const text = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    const err = new Error(text || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  return text ? JSON.parse(text) : null;
+}
+
+
+function populateSelect(selectEl, items, placeholder) {
+  selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+  (items || []).forEach(it => {
+    const opt = document.createElement("option");
+    opt.value = it.nom;
+    opt.textContent = it.nom;
+    selectEl.appendChild(opt);
+  });
+}
+
+function setLoading(msg = "Chargement…") {
+  document.getElementById("results-body").innerHTML =
+    `<tr><td colspan="9">${escapeHtml(msg)}</td></tr>`;
+}
+
+function setEmpty(msg = "Aucun résultat.") {
+  document.getElementById("results-body").innerHTML =
+    `<tr><td colspan="9">${escapeHtml(msg)}</td></tr>`;
+}
+
+
+/* ================================
+   Chargement des référentiels (personnes + technos)
+================================ */
+async function loadRefs() {
+  try {
+    const [personnes, technos] = await Promise.all([
+      fetchJson(`${API_BASE_URL}/personnes`),
+      fetchJson(`${API_BASE_URL}/ref/technos`)
+    ]);
+
+    populateSelect(document.getElementById("personne-filter"), personnes, "-- Toutes --");
+    populateSelect(document.getElementById("techno-filter"), technos, "-- Toutes --");
+
+  } catch (err) {
+    console.error("Erreur loadRefs:", err);
+    await showAlert("Impossible de charger les référentiels (personnes/technos).");
+  }
+}
+
+/* ================================
+   Requête historique
+   -> ATTEND un endpoint : GET /historique
+   Query params possibles :
+     personne, techno, status, type, from, to, limit
+================================ */
+async function searchHistory() {
+  const personne = document.getElementById("personne-filter").value;
+  const techno = document.getElementById("techno-filter").value;
+  const status = document.getElementById("status-filter").value;
+  const type = document.getElementById("type-filter").value;
+  const from = document.getElementById("from-date").value;
+  const to = document.getElementById("to-date").value;
+  const limit = document.getElementById("limit").value;
+
+  const info = document.getElementById("results-info");
+  const warning = document.getElementById("api-warning");
+
+  warning.style.display = "none";
+  setLoading("Chargement de l’historique…");
+  info.textContent = "Chargement…";
+
+  try {
+    const params = new URLSearchParams();
+    if (personne) params.set("personne", personne);
+    if (techno) params.set("techno", techno);
+    if (status) params.set("status", status);
+    if (type) params.set("type", type);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (limit) params.set("limit", limit);
+
+    const url = `${API_BASE_URL}/historique?${params.toString()}`;
+    const rows = await fetchJson(url);
+
+    CURRENT_ROWS = rows || [];
+
+    if (!CURRENT_ROWS.length) {
+      setEmpty("Aucun événement ne correspond aux filtres.");
+      info.textContent = "0 résultat.";
+      return;
+    }
+
+    renderTable(CURRENT_ROWS);
+    info.textContent = `${CURRENT_ROWS.length} événement(s)`;
+
+  } catch (err) {
+    console.error("Erreur searchHistory:", err);
+
+    // Si l’API n’a pas encore /historique
+    if (err.status === 404) {
+      warning.style.display = "block";
+      setEmpty("Endpoint /historique non disponible. Ajoute les endpoints d’historique côté API.");
+      info.textContent = "Fonctionnalité en attente côté API.";
+      return;
+    }
+
+    setEmpty("Erreur lors du chargement (voir console).");
+    info.textContent = "Erreur.";
+    await showAlert("Erreur historique : " + (err.message || "inconnue"));
+  }
+}
+
+/* ================================
+   Rendu table
+   Format attendu des objets retournés par /historique :
+   {
+     id: "...",
+     createdAt: "ISO",
+     auteur: "Julien",
+     type: "COMPETENCE_UPSERT",
+     contexte: { techno, domaine, version },
+     before: {...} | null,
+     after: {...} | null,
+     status: "PROPOSED|VALIDATED|REJECTED",
+     manager: "Sebastien" | null,
+     decisionAt: "ISO" | null
+   }
+================================ */
+function renderTable(rows) {
+  const tbody = document.getElementById("results-body");
+  tbody.innerHTML = "";
+
+  rows.forEach(ev => {
+    const evLabel = ev.techno
+      ? `${ev.techno} / ${ev.domaine || "-"} / ${ev.version || "-"}`
+      : "-";
+
+    const objectLabel = buildObjectLabel(ev);
+    const changeLabel = buildChangeLabel(ev);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(formatDateTime(ev.createdAt || ev.date || ev.updatedAt))}</td>
+      <td>${escapeHtml(ev.auteur || "-")}</td>
+      <td>${escapeHtml(ev.personne || "-")}</td>
+      <td>${escapeHtml(objectLabel)}</td>
+      <td>${escapeHtml(changeLabel)}</td>
+      <td>${pill(ev.status)}</td>
+      <td>${escapeHtml(ev.manager || "-")}</td>
+      <td>${escapeHtml(formatDateTime(ev.decisionAt))}</td>
+      <td>${escapeHtml(ev.decisionComment || "-")}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function summarize(obj) {
+  // résumé lisible (spécifique compétences)
+  if (obj && typeof obj === "object") {
+    const parts = [];
+    if ("niveau" in obj) parts.push(`niveau=${obj.niveau}`);
+    if ("actif" in obj) parts.push(`actif=${obj.actif}`);
+    if ("description" in obj && obj.description) parts.push(`desc="${obj.description}"`);
+    if ("nom" in obj) parts.push(`nom="${obj.nom}"`);
+    return parts.length ? parts.join(", ") : JSON.stringify(obj);
+  }
+  return String(obj);
+}
+
+/* ================================
+   Export CSV
+================================ */
+async function exportCSV() {
+  if (!CURRENT_ROWS || !CURRENT_ROWS.length) {
+    await showAlert("Aucun résultat à exporter.");
+    return;
+  }
+
+  const headers = [
+    "id","createdAt","auteur","personne","type",
+    "techno","domaine","version",
+    "before","after","status","manager","decisionAt", "decisionComment"
+  ];
+
+  const lines = [headers.join(";")];
+
+  CURRENT_ROWS.forEach(ev => {
+    const line = [
+      ev.id ?? "",
+      ev.createdAt ?? "",
+      ev.auteur ?? "",
+      ev.personne ?? "",
+      ev.type ?? "",
+      ev.techno ?? "",
+      ev.domaine ?? "",
+      ev.version ?? "",
+      ev.before ? JSON.stringify(ev.before).replaceAll(";", ",") : "",
+      ev.after ? JSON.stringify(ev.after).replaceAll(";", ",") : "",
+      ev.status ?? "",
+      ev.manager ?? "",
+      ev.decisionAt ?? "",
+      ev.decisionComment ?? ""
+    ].map(v => String(v).replaceAll("\n"," ").replaceAll("\r"," "));
+
+    lines.push(line.join(";"));
+  });
+
+  const blob = new Blob([lines.join("\n")], {type: "text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "historique.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ================================
+   Reset
+================================ */
+function resetFilters() {
+  document.getElementById("personne-filter").value = "";
+  document.getElementById("techno-filter").value = "";
+  document.getElementById("status-filter").value = "";
+  document.getElementById("type-filter").value = "";
+  document.getElementById("from-date").value = "";
+  document.getElementById("to-date").value = "";
+  document.getElementById("limit").value = "100";
+
+  CURRENT_ROWS = [];
+  document.getElementById("results-info").textContent = "Aucune recherche lancée.";
+  document.getElementById("results-body").innerHTML = `<tr><td colspan="9">Lance une recherche.</td></tr>`;
+  document.getElementById("api-warning").style.display = "none";
+}
+
+
+function buildObjectLabel(ev) {
+
+  if (ev.type === "PERSON_CREATE" || ev.type === "PERSON_DELETE") {
+    return ev.personne || "-";
+  }
+
+  if (ev.type === "QUESTIONNAIRE_REQUEST") {
+    return ev.personne || "-";
+  }
+
+  if (ev.techno) {
+    return [
+      ev.techno,
+      ev.domaine,
+      ev.version
+    ]
+    .filter(Boolean)
+    .join(" / ");
+  }
+
+  return "-";
+}
+
+function buildChangeLabel(ev) {
+
+  const before = ev.before || {};
+  const after = ev.after || {};
+
+  // ✅ Questionnaire
+  if (ev.type === "QUESTIONNAIRE_REQUEST") {
+    return "📋 Ajout de profil via questionnaire";
+  }
+
+  // ✅ Création de profil
+  if (ev.type === "PERSON_CREATE") {
+    return "👤 Création d'un nouveau profil";
+  }
+
+  // ✅ Suppression de profil
+  if (ev.type === "PERSON_DELETE") {
+    return "🗑️ Suppression du profil";
+  }
+
+  // ✅ Création de technologie
+  if (ev.type === "TECHNO_CREATE") {
+    return `💻 Ajout de la technologie "${ev.techno || ""}"`;
+  }
+
+  // ✅ Suppression demandée
+  if (after.description === "suppression") {
+    return "🗑️ Demande de suppression de compétence";
+  }
+
+  // ✅ Nouvelle compétence
+  if (
+    before.niveau == null &&
+    after.niveau != null
+  ) {
+    return `➕ Ajout d'une compétence (niveau ${after.niveau})`;
+  }
+
+  // ✅ Changement de niveau
+  if (
+    before.niveau != null &&
+    after.niveau != null &&
+    before.niveau !== after.niveau
+  ) {
+    return `📈 Niveau ${before.niveau} → ${after.niveau}`;
+  }
+
+  // ✅ Changement de description
+  if (
+    before.description != null &&
+    after.description != null &&
+    before.description !== after.description
+  ) {
+    return "✏️ Modification de la description";
+  }
+
+  // ✅ Modification générique de compétence
+  if (ev.type === "COMPETENCE_REQUEST") {
+    return "🧩 Modification de compétence";
+  }
+
+  if (ev.type === "COMPETENCE_DELETE") {
+    return "🗑️ Suppression de compétence";
+  }
+
+  return "📝 Modification";
+}
+
+
+/* ================================
+   Events + init
+================================ */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document.getElementById("search-btn").addEventListener("click", searchHistory);
+document.getElementById("reset-btn").addEventListener("click", resetFilters);
+document.getElementById("export-btn").addEventListener("click", exportCSV);
+
+
+loadRefs();
+</script>
+
+</body>
+</html>

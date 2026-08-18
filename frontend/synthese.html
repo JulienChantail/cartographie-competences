@@ -1,0 +1,552 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Synthèse - Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Synthèse des compétences</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html" class="active">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+<main>
+
+  <!-- ============================
+       Filtres
+  ============================= -->
+  
+<section class="card">
+  <h2>Filtres</h2>
+
+  
+<div class="field">
+  <label for="category-filter">Catégorie</label>
+  <select id="category-filter">
+    <option value="">-- Toutes --</option>
+  </select>
+</div>
+
+
+  <div class="form-grid">
+    <div class="field">
+      <label for="techno-filter">Techno</label>
+      <select id="techno-filter">
+        <option value="">-- Toutes --</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="domaine-filter">Domaine</label>
+      <select id="domaine-filter">
+        <option value="">-- Tous --</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="niveau-min">Niveau minimum requis</label>
+      <select id="niveau-min">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+      </select>
+    </div>
+
+    <div class="field" style="display:flex; align-items:flex-end;">
+      <button id="refresh-btn" type="button" class="btn btn-secondary">Rafraîchir</button>
+    </div>
+  </div>
+
+  <p class="muted mt-2 mb-0">
+    La couverture est évaluée par contexte (Techno / Domaine / Version).
+    Un contexte est <strong>couvert</strong> s’il existe au moins <strong>1 personne active</strong>
+    avec un <strong>niveau ≥ niveau minimum</strong>.
+  </p>
+</section>
+
+
+  <!-- ============================
+       Synthèse équipe
+  ============================= -->
+  <section class="card">
+    <h2>Synthèse équipe</h2>
+
+    <div id="kpi-info" class="muted" style="margin-bottom:10px;">
+      Chargement…
+    </div>
+
+    <div class="grid-3">
+      <div class="kpi">
+        <h3>Contextes analysés</h3>
+        <div class="value" id="kpi-total">-</div>
+        <div class="sub" id="kpi-scope">—</div>
+      </div>
+
+      <div class="kpi">
+        <h3>Taux de couverture</h3>
+        <div class="value" id="kpi-rate">-</div>
+        <div class="sub">Couvert / Total</div>
+        <div class="bar">
+          <div id="kpi-bar-ok" class="bar-ok"></div>
+        </div>
+      </div>
+
+      <div class="kpi">
+        <h3>Répartition</h3>
+        <div class="sub">
+          ✅ Couvert : <strong id="kpi-ok">-</strong><br>
+          ⚠️ Partiel : <strong id="kpi-partial">-</strong><br>
+          ❌ Non couvert : <strong id="kpi-none">-</strong>
+        </div>
+        <div class="bar" style="margin-top:10px;">
+          <div id="kpi-bar-partial" class="bar-partial"></div>
+        </div>
+        <div class="bar" style="margin-top:8px;">
+          <div id="kpi-bar-none" class="bar-none"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       Synthèse par techno
+  ============================= -->
+  <section class="card">
+    <h2>Synthèse par techno</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Permet de voir rapidement quelles technos sont bien couvertes (et lesquelles sont à risque).
+    </p>
+
+    
+<div class="table-wrap">
+  <table class="zebra">
+    <thead>
+      <tr>
+        <th>Techno</th>
+        <th class="right">Contextes</th>
+        <th class="right">✅</th>
+        <th class="right">⚠️</th>
+        <th class="right">❌</th>
+        <th class="right">Taux couverture</th>
+      </tr>
+    </thead>
+    <tbody id="techno-body">
+      <tr><td colspan="6">Chargement…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+  </section>
+
+  <!-- ============================
+       Détail par contexte
+  ============================= -->
+  <section class="card">
+    <h2>Détail par contexte</h2>
+
+    <div id="info" class="muted" style="margin-bottom:10px;">
+      Chargement…
+    </div>
+
+    
+<div class="table-wrap">
+  <table class="zebra">
+    <thead>
+      <tr>
+        <th>Techno</th>
+        <th>Domaine</th>
+        <th>Version</th>
+        <th class="right">Personnes (≥ min)</th>
+        <th>Couverture</th>
+        <th>Détail</th>
+      </tr>
+    </thead>
+    <tbody id="gaps-body">
+      <tr><td colspan="6">Chargement…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+  </section>
+
+</main>
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+/* ================================
+   Helpers
+================================ */
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    cache: "no-store",
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    const text = await res.text().catch(() => "");
+
+    if (!res.ok) {
+      throw new Error(text || ("HTTP " + res.status));
+    }
+
+    return text ? JSON.parse(text) : null;
+  });
+}
+
+
+function escapeHtml(v) {
+  const d = document.createElement("div");
+  d.textContent = v ?? "";
+  return d.innerHTML;
+}
+
+function pill(status) {
+  if (status === "OK") return `<span class="pill ok">✅ Couvert</span>`;
+  if (status === "PARTIAL") return `<span class="pill partial">⚠️ Partiel</span>`;
+  return `<span class="pill none">❌ Non couvert</span>`;
+}
+
+function buildScopeLabel({techno, domaine, niveauMin}) {
+  const parts = [];
+  if (techno) parts.push(`Techno=${techno}`);
+  if (domaine) parts.push(`Domaine=${domaine}`);
+  parts.push(`Niveau min=${niveauMin}`);
+  return parts.join(" — ");
+}
+
+function setKpiBars(total, ok, partial, none) {
+  const okPct = total ? (ok / total) * 100 : 0;
+  const partialPct = total ? (partial / total) * 100 : 0;
+  const nonePct = total ? (none / total) * 100 : 0;
+
+  document.getElementById("kpi-bar-ok").style.width = okPct.toFixed(1) + "%";
+  document.getElementById("kpi-bar-partial").style.width = partialPct.toFixed(1) + "%";
+  document.getElementById("kpi-bar-none").style.width = nonePct.toFixed(1) + "%";
+}
+
+/* ================================
+   Chargement filtres
+================================ */
+
+async function loadFilters() {
+  const [categories, domaines] = await Promise.all([
+    fetchJson(`${API_BASE_URL}/ref/techno-categories`),
+    fetchJson(`${API_BASE_URL}/ref/domaines`)
+  ]);
+
+  const fill = (id, items) => {
+    const sel = document.getElementById(id);
+    items.forEach(i => {
+      const o = document.createElement("option");
+      o.value = i.nom;
+      o.textContent = i.nom;
+      sel.appendChild(o);
+    });
+  };
+
+  fill("category-filter", categories || []);
+  fill("domaine-filter", domaines || []);
+
+  // ✅ techno vide au départ
+  document.getElementById("techno-filter").innerHTML =
+    `<option value="">-- Toutes --</option>`;
+}
+
+
+/* ================================
+   Core: calcul couverture
+   - 1 appel /contextes (filtrable)
+   - 1 appel /competences/contexte (filtrable)
+   Puis agrégation JS par contexte
+================================ */
+async function refreshSynthese() {
+  const category = document.getElementById("category-filter").value;
+  const techno = document.getElementById("techno-filter").value;
+  const domaine = document.getElementById("domaine-filter").value;
+  const niveauMin = parseInt(document.getElementById("niveau-min").value, 10);
+
+  const info = document.getElementById("info");
+  const kpiInfo = document.getElementById("kpi-info");
+  const tbody = document.getElementById("gaps-body");
+  const technoBody = document.getElementById("techno-body");
+
+  // UI loading
+  info.textContent = "Analyse des couvertures…";
+  kpiInfo.textContent = "Calcul en cours…";
+  tbody.innerHTML = `<tr><td colspan="6">Calcul en cours…</td></tr>`;
+  technoBody.innerHTML = `<tr><td colspan="6">Calcul en cours…</td></tr>`;
+
+  try {
+    // 1) Contextes (filtrage côté API si disponible)
+    const ctxParams = new URLSearchParams();
+    if (category) ctxParams.set("category", category);
+    if (techno) ctxParams.set("techno", techno);
+    if (domaine) ctxParams.set("domaine", domaine);
+
+    const contextes = await fetchJson(`${API_BASE_URL}/contextes?${ctxParams.toString()}`) || [];
+
+
+    // 2) Toutes les compétences qui matchent le scope (1 seul appel)
+    // On récupère toutes les lignes Personne/Techno/Domaine/Version/Niveau/Actif
+    const compParams = new URLSearchParams();
+    if (category) compParams.set("category", category);
+    if (techno) compParams.set("techno", techno);
+    if (domaine) compParams.set("domaine", domaine);
+
+    const compRows = await fetchJson(`${API_BASE_URL}/competences/contexte?${compParams.toString()}`) || [];
+
+    // 3) Indexer les compétences par cle de contexte
+    // key = techno|domaine|version
+    const compByCtx = new Map();
+    for (const r of compRows) {
+      const key = `${r.techno}|${r.domaine}|${r.version}`;
+      if (!compByCtx.has(key)) compByCtx.set(key, []);
+      compByCtx.get(key).push(r);
+    }
+
+    // 4) Calcul couverture par contexte + synthèse techno
+    const results = [];
+    const perTechno = new Map(); // techno -> {total, ok, partial, none}
+
+    for (const ctx of contextes) {
+      const key = `${ctx.techno}|${ctx.domaine}|${ctx.version}`;
+      const rows = compByCtx.get(key) || [];
+
+      // Personnes qui couvrent >= niveauMin (actif=true)
+      const peopleCover = new Set();
+      let hasAnyActive = false;
+      let hasActiveBelowMin = false;
+
+      for (const r of rows) {
+        const niveau = (typeof r.niveau === "number") ? r.niveau : parseInt(r.niveau, 10);
+        const actif = (r.actif === true);
+
+        if (actif && Number.isFinite(niveau)) {
+          hasAnyActive = true;
+          if (niveau >= niveauMin) {
+            peopleCover.add(r.personne);
+          } else if (niveau > 0) {
+            hasActiveBelowMin = true;
+          }
+        }
+      }
+
+      let status = "NONE";
+      if (peopleCover.size > 0) status = "OK";
+      else if (hasAnyActive || hasActiveBelowMin) status = "PARTIAL";
+
+      const entry = {
+        ...ctx,
+        status,
+        people: peopleCover.size,
+        peopleList: Array.from(peopleCover).sort((a,b) => String(a).localeCompare(String(b), "fr"))
+      };
+      results.push(entry);
+
+      // agrégation techno
+      if (!perTechno.has(ctx.techno)) perTechno.set(ctx.techno, { total: 0, ok: 0, partial: 0, none: 0 });
+      const agg = perTechno.get(ctx.techno);
+      agg.total += 1;
+      if (status === "OK") agg.ok += 1;
+      else if (status === "PARTIAL") agg.partial += 1;
+      else agg.none += 1;
+    }
+
+    // 5) Tri résultats pour lisibilité
+    results.sort((a, b) => {
+      // Non couvert en haut, puis partiel, puis couvert
+      const order = { "NONE": 0, "PARTIAL": 1, "OK": 2 };
+      const da = order[a.status] ?? 99;
+      const db = order[b.status] ?? 99;
+      if (da !== db) return da - db;
+      // puis techno, domaine, version
+      return (
+        String(a.techno).localeCompare(String(b.techno), "fr") ||
+        String(a.domaine).localeCompare(String(b.domaine), "fr") ||
+        String(a.version).localeCompare(String(b.version), "fr")
+      );
+    });
+
+    // 6) KPI global
+    const total = results.length;
+    const ok = results.filter(r => r.status === "OK").length;
+    const partial = results.filter(r => r.status === "PARTIAL").length;
+    const none = results.filter(r => r.status === "NONE").length;
+
+    const rate = total ? Math.round((ok / total) * 100) : 0;
+
+    document.getElementById("kpi-total").textContent = String(total);
+    document.getElementById("kpi-ok").textContent = String(ok);
+    document.getElementById("kpi-partial").textContent = String(partial);
+    document.getElementById("kpi-none").textContent = String(none);
+    document.getElementById("kpi-rate").textContent = `${rate}%`;
+    document.getElementById("kpi-scope").textContent = buildScopeLabel({techno, domaine, niveauMin});
+    setKpiBars(total, ok, partial, none);
+
+    kpiInfo.textContent = `Analyse terminée — ${buildScopeLabel({techno, domaine, niveauMin})}`;
+    info.textContent = `${total} contexte(s) analysé(s).`;
+
+    // 7) Tableau techno
+    const technoRows = Array.from(perTechno.entries())
+      .map(([name, agg]) => ({ techno: name, ...agg, rate: agg.total ? (agg.ok / agg.total) * 100 : 0 }))
+      .sort((a,b) => b.rate - a.rate || a.techno.localeCompare(b.techno, "fr"));
+
+    technoBody.innerHTML = "";
+    if (technoRows.length === 0) {
+      technoBody.innerHTML = `<tr><td colspan="6">Aucune donnée.</td></tr>`;
+    } else {
+      technoRows.forEach(t => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(t.techno)}</td>
+          <td class="right">${t.total}</td>
+          <td class="right">${t.ok}</td>
+          <td class="right">${t.partial}</td>
+          <td class="right">${t.none}</td>
+          <td class="right"><strong>${Math.round(t.rate)}%</strong></td>
+        `;
+        technoBody.appendChild(tr);
+      });
+    }
+
+    // 8) Détail contextes
+    tbody.innerHTML = "";
+    if (!results.length) {
+      tbody.innerHTML = `<tr><td colspan="6">Aucun contexte.</td></tr>`;
+      return;
+    }
+
+    results.forEach(r => {
+      const tr = document.createElement("tr");
+
+      const detailHtml = r.peopleList.length
+        ? `<details>
+             <summary class="btn-mini">Voir (${r.peopleList.length})</summary>
+             <div class="small" style="margin-top:8px;">
+               ${r.peopleList.map(p => `<div>• ${escapeHtml(p)}</div>`).join("")}
+             </div>
+           </details>`
+        : `<span class="muted">—</span>`;
+
+      tr.innerHTML = `
+        <td>${escapeHtml(r.techno)}</td>
+        <td>${escapeHtml(r.domaine)}</td>
+        <td>${escapeHtml(r.version)}</td>
+        <td class="right"><strong>${r.people}</strong></td>
+        <td>${pill(r.status)}</td>
+        <td>${detailHtml}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById("kpi-info").textContent = "Erreur.";
+    document.getElementById("info").textContent = "Erreur.";
+    document.getElementById("gaps-body").innerHTML = `<tr><td colspan="6">Erreur de calcul.</td></tr>`;
+    document.getElementById("techno-body").innerHTML = `<tr><td colspan="6">Erreur de calcul.</td></tr>`;
+  }
+}
+
+/* ================================
+   Init
+================================ */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document.getElementById("refresh-btn").addEventListener("click", refreshSynthese);
+
+
+document.getElementById("category-filter").addEventListener("change", async (e) => {
+  const category = e.target.value;
+  const technoSelect = document.getElementById("techno-filter");
+
+  technoSelect.innerHTML = `<option value="">-- Toutes --</option>`;
+
+  if (!category) {
+    await refreshSynthese();
+    return;
+  }
+
+  try {
+    const technos = await fetchJson(
+      `${API_BASE_URL}/ref/technos?category=${encodeURIComponent(category)}`
+    );
+
+    technos.forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t.nom;
+      opt.textContent = t.nom;
+      technoSelect.appendChild(opt);
+    });
+
+    await refreshSynthese();
+
+  } catch (err) {
+    console.error("Erreur chargement technos:", err);
+    await showAlert("Impossible de charger les technologies.");
+  }
+});
+
+loadFilters().then(refreshSynthese);
+</script>
+
+</body>
+</html>

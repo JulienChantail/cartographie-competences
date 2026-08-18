@@ -1,0 +1,127 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Accueil — Cartographie DBA</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+
+
+<header>
+  <div class="topbar">
+    <h1>Cartographie des compétences DBA</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html" class="active">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+</header>
+
+
+
+
+<main>
+  <!-- HERO / INTRO -->
+  <section class="card">
+    <h2>Bienvenue 👋</h2>
+    <p class="muted">
+      Cet outil permet de cartographier les compétences de l’équipe DBA, d’identifier rapidement les profils adaptés
+      à un besoin projet, et de suivre l’évolution des compétences (workflow de demande / validation / historique).
+    </p>
+
+    <div class="divider"></div>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="profils.html">Voir les profils</a>
+      <a class="btn btn-secondary" href="recherche.html">Rechercher un profil</a>
+      <a class="btn btn-ghost admin-only" href="validation.html">Validation manager</a>
+      <a class="btn btn-ghost" href="synthese.html">Synthèse équipe</a>
+      <a class="btn btn-ghost" href="historique.html">Historique</a>
+    </div>
+  </section>
+
+  <!-- CARTES D’ACCÈS RAPIDE -->
+  <section class="card">
+    <h2>Accès rapide</h2>
+    <p class="muted" style="margin-top:-4px;">
+      Commence par l’action que tu veux réaliser.
+    </p>
+
+    <div class="form-grid" style="grid-template-columns: repeat(3, minmax(220px, 1fr)); align-items:stretch;">
+      <div class="card" style="margin:0;">
+        <h3 class="mt-0">Profils</h3>
+        <p class="muted mb-2">Consulter les compétences d’une personne et soumettre des demandes.</p>
+        <a class="btn btn-secondary" href="profils.html">Ouvrir</a>
+      </div>
+
+      <div class="card" style="margin:0;">
+        <h3 class="mt-0">Recherche</h3>
+        <p class="muted mb-2">Trouver les meilleurs profils selon des prérequis (scoring).</p>
+        <a class="btn btn-secondary" href="recherche.html">Ouvrir</a>
+      </div>
+
+      <div class="card" style="margin:0;">
+        <h3 class="mt-0">Synthèse</h3>
+        <p class="muted mb-2">Visualiser la couverture de l’équipe par techno / contexte.</p>
+        <a class="btn btn-secondary" href="synthese.html">Ouvrir</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+
+<footer>
+    <p>Cartographie des compétences DBA</p>
+</footer>
+
+
+<script src="common.js"></script>
+<script>
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+</script>
+
+</body>
+</html>

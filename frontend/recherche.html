@@ -1,0 +1,608 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Recherche — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Petit style utilitaire pour la liste des critères */
+    .criteria-list { margin-top: 12px; display:flex; flex-direction:column; gap:8px; }
+    .criterion-item {
+      display:flex; justify-content:space-between; gap:10px; align-items:center;
+      padding:10px; border:1px solid #e6e6e6; border-radius:10px; background:#fafafa;
+    }
+    .criterion-item .meta { font-size: 0.95em; opacity: .9; line-height: 1.3; }
+    .criterion-item .actions { display:flex; gap:8px; }
+    .btn-mini { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+    .btn-mini-danger { background:#b00020; color:#fff; border:1px solid #b00020; }
+    .btn-mini-secondary { background:#eee; border:1px solid #ddd; }
+    .muted { opacity: .8; }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Recherche de profils</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html" class="active">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+
+
+<main>
+  <!-- Critères -->
+  <section class="card">
+    <h2>Critères de recherche</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Minimum un critère pour lancer une recherche.
+    </p>
+
+    
+<div class="field">
+  <label for="category-select">Catégorie</label>
+  <select id="category-select">
+    <option value="">-- Choisir une catégorie --</option>
+  </select>
+</div>
+
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="techno-select">Technologie</label>
+        <select id="techno-select">
+          <option value="">-- Choisir une techno --</option>
+        </select>
+      </div>
+
+
+      <div class="field">
+        <label for="domaine-select">Domaine</label>
+        <select id="domaine-select">
+          <option value="">-- Choisir un domaine --</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="version-select">Version</label>
+        <select id="version-select">
+          <option value="">-- Choisir une version --</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="niveau-min-select">Niveau minimum</label>
+        <select id="niveau-min-select">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+
+      <!-- ⚠️ IMPORTANT : ton JS utilise actif-only, donc il doit exister -->
+      <div class="field">
+        <label style="display:flex; gap:10px; align-items:center; margin-top:26px;">
+          <input type="checkbox" id="actif-only" checked />
+          Actif uniquement
+        </label>
+      </div>
+
+      <div class="field" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <button id="add-criterion-btn" type="button" class="btn btn-secondary">+ Ajouter un critère</button>
+        <button id="search-btn" type="button" class="btn btn-primary">Rechercher</button>
+        <button id="reset-btn" type="button" class="btn btn-ghost">Réinitialiser</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Liste des critères ajoutés -->
+    <div id="criteria-list" class="criteria-list"></div>
+  </section>
+
+  <!-- Résultats -->
+  <section class="card">
+    <h2>Résultats</h2>
+
+    <div id="results-info" class="muted" style="margin-bottom:10px;">
+      Aucune recherche lancée.
+    </div>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Personne</th>
+            <th class="right">Score</th>
+            <th>Détails correspondance</th>
+          </tr>
+        </thead>
+        <tbody id="results-body">
+          <tr><td colspan="3">Lance une recherche.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+/* ================================
+   Helpers
+================================ */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function setLoading(tbody, msg="Chargement…") {
+  tbody.innerHTML = `<tr><td colspan="3">${escapeHtml(msg)}</td></tr>`;
+}
+
+function setEmpty(tbody, msg) {
+  tbody.innerHTML = `<tr><td colspan="3">${escapeHtml(msg)}</td></tr>`;
+}
+
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${text}`);
+    }
+    return res.json();
+  });
+}
+
+
+function populateSelect(selectEl, items, placeholder="-- Choisir --") {
+  selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+  items.forEach(it => {
+    const opt = document.createElement("option");
+    opt.value = it.nom;
+    opt.textContent = it.nom;
+    selectEl.appendChild(opt);
+  });
+}
+
+function normalizeInt(v) {
+  const n = (typeof v === "number") ? v : parseInt(v, 10);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+
+
+function getScoreClass(score) {
+  if (score >= 6) return "score-high";
+  if (score >= 3) return "score-medium";
+  return "score-low";
+}
+
+/* ================================
+   Multi-critères : stockage
+================================ */
+const PROJECT_CRITERIA = []; // liste des critères projet
+
+async function readCurrentCriterion() {
+  const category = document.getElementById("category-select").value || "";
+  const techno = document.getElementById("techno-select").value || "";
+  const domaine = document.getElementById("domaine-select").value || "";
+  const version = document.getElementById("version-select").value || "";
+  const niveauMin = parseInt(document.getElementById("niveau-min-select").value, 10);
+  const actifOnly = document.getElementById("actif-only").checked;
+
+  // au moins un champ non vide
+  if (!category && !techno && !domaine && !version) {
+    await showAlert("Merci de sélectionner au moins un champ pour ajouter un critère (ex : Techno).");
+    return null;
+  }
+
+  return {
+    category: category || null,
+    techno: techno || null,
+    domaine: domaine || null,
+    version: version || null,
+    niveauMin: Number.isFinite(niveauMin) ? niveauMin : 2,
+    actifOnly: !!actifOnly
+  };
+}
+
+function criterionLabel(c) {
+  // Affichage avec wildcard *
+  const cat = c.category ?? "*";
+  const t = c.techno ?? "*";
+  const d = c.domaine ?? "*";
+  const v = c.version ?? "*";
+  const n = c.niveauMin ?? 2;
+  const act = c.actifOnly ? "actif uniquement" : "actif ou non";
+  return `${cat} / ${t} / ${d} / ${v} / niveau≥${n} / ${act}`;
+}
+
+function renderCriteriaList() {
+  const container = document.getElementById("criteria-list");
+  container.innerHTML = "";
+
+  if (PROJECT_CRITERIA.length === 0) {
+    const div = document.createElement("div");
+    div.className = "muted";
+    div.textContent = "Aucun critère ajouté.";
+    container.appendChild(div);
+    return;
+  }
+
+  PROJECT_CRITERIA.forEach((c, idx) => {
+    const row = document.createElement("div");
+    row.className = "criterion-item";
+    row.innerHTML = `
+      <div class="meta">
+        <strong>Critère ${idx + 1}</strong><br>
+        ${escapeHtml(criterionLabel(c))}
+      </div>
+      <div class="actions">
+        <button class="btn-mini btn-mini-danger" type="button">Supprimer</button>
+      </div>
+    `;
+
+    row.querySelector("button").addEventListener("click", () => {
+      PROJECT_CRITERIA.splice(idx, 1);
+      renderCriteriaList();
+    });
+
+    container.appendChild(row);
+  });
+}
+
+/* ================================
+   Scoring
+================================ */
+/**
+ * Score d'une compétence (row) contre un critère.
+ * - filtre bloquant : si un champ est renseigné dans le critère, il doit matcher
+ * - niveau min, actifOnly
+ * - points:
+ *   - base match: +10
+ *   - bonus niveau : + (3 si niveau=3, 1 si niveau=2)
+ *   - bonus actif : +2 si actif=true et actifOnly=false
+ */
+
+function scoreRowAgainstCriterion(row, criterion) {
+
+  const niveau = normalizeInt(row.niveau);
+  if (!Number.isFinite(niveau)) return 0;
+
+  // =========================
+  // FILTRE BLOQUANT : CATEGORY
+  // =========================
+  if (criterion.category && row.category !== criterion.category) {
+    return 0; // 💥 règle principale
+  }
+
+  // =========================
+  // FILTRES CLASSIQUES
+  // =========================
+  if (criterion.actifOnly && row.actif !== true) return 0;
+
+  if (niveau < (criterion.niveauMin ?? 2)) return 0;
+
+  // =========================
+  // SCORE
+  // =========================
+  let score = 0;
+
+  // ✅ Match techno
+  if (criterion.techno && row.techno === criterion.techno) {
+    score += 3;
+  }
+
+  // ✅ Match domaine
+  if (criterion.domaine && row.domaine === criterion.domaine) {
+    score += 2;
+  }
+
+  // ✅ Bonus niveau (important)
+  if (niveau === 3) score += 4;
+  else if (niveau === 2) score += 2;
+  else if (niveau === 1) score += 0;
+
+  // ✅ Bonus actif
+  if (row.actif === true) {
+    score += 1;
+  }
+
+  return score;
+}
+
+
+/* ================================
+   Chargement des référentiels
+================================ */
+
+async function loadRefs() {
+  const categorySelect = document.getElementById("category-select");
+  const technoSelect = document.getElementById("techno-select");
+  const domaineSelect = document.getElementById("domaine-select");
+  const versionSelect = document.getElementById("version-select");
+
+  try {
+    const [categories, domaines, versions] = await Promise.all([
+      fetchJson(`${API_BASE_URL}/ref/techno-categories`),
+      fetchJson(`${API_BASE_URL}/ref/domaines`),
+      fetchJson(`${API_BASE_URL}/ref/versions`)
+    ]);
+
+    // ✅ Categories
+    populateSelect(categorySelect, categories, "-- Choisir une catégorie --");
+
+    // ✅ Techno vide au départ (dépend de la catégorie)
+    populateSelect(technoSelect, [], "-- Choisir une techno --");
+
+    // ✅ Domaines / Versions inchangés
+    populateSelect(domaineSelect, domaines, "-- Choisir un domaine --");
+    populateSelect(versionSelect, versions, "-- Choisir une version --");
+
+  } catch (err) {
+    console.error("Erreur chargement référentiels:", err);
+    await showAlert("Impossible de charger les référentiels (catégories/domaines/versions).");
+  }
+}
+
+
+/* ================================
+   Recherche multicritère + scoring
+================================ */
+async function search() {
+  const info = document.getElementById("results-info");
+  const tbody = document.getElementById("results-body");
+
+  // Si aucun critère ajouté, on utilise le formulaire courant comme critère unique
+  let criteriaToUse;
+  if (PROJECT_CRITERIA.length > 0) {
+    criteriaToUse = [...PROJECT_CRITERIA];
+  } else {
+    const one = await readCurrentCriterion();
+    criteriaToUse = one ? [one] : [];
+  }
+
+  if (criteriaToUse.length === 0) {
+    await showAlert("Merci de renseigner au moins un critère (ou d’en ajouter via + Ajouter un critère).");
+    return;
+  }
+
+  setLoading(tbody, "Recherche en cours…");
+  info.textContent = "Recherche en cours…";
+
+  try {
+    // Cache pour éviter d’appeler deux fois la même URL
+    const cache = new Map();
+
+    // Map personne -> {personne, score, details[]}
+    const scores = new Map();
+
+    // Pour chaque critère, on interroge /competences/contexte avec les params renseignés
+    for (let i = 0; i < criteriaToUse.length; i++) {
+      const c = criteriaToUse[i];
+
+      const params = new URLSearchParams();
+      if (c.category) params.append("category", c.category);
+      if (c.techno) params.append("techno", c.techno);
+      if (c.domaine) params.append("domaine", c.domaine);
+      if (c.version) params.append("version", c.version);
+
+      const url = `${API_BASE_URL}/competences/contexte?${params.toString()}`;
+
+      let rows;
+      if (cache.has(url)) {
+        rows = cache.get(url);
+      } else {
+        rows = await fetchJson(url);
+        cache.set(url, rows || []);
+      }
+
+      (rows || []).forEach(row => {
+        // Scoring contre ce critère
+        const pts = scoreRowAgainstCriterion(row, c);
+        if (pts <= 0) return;
+
+        const entry = scores.get(row.personne) || {
+          personne: row.personne,
+          score: 0,
+          details: []
+        };
+
+        entry.score += pts;
+
+        // Détail lisible (critère + contexte réel trouvé)
+        
+const label = {
+  techno: row.techno,
+  domaine: row.domaine,
+  version: row.version,
+  niveau: row.niveau,
+  pts: pts
+};
+
+        entry.details.push(label);
+
+        scores.set(row.personne, entry);
+      });
+    }
+
+    const results = Array.from(scores.values()).sort((a, b) => b.score - a.score);
+
+    tbody.innerHTML = "";
+
+    if (results.length === 0) {
+      setEmpty(tbody, "Aucun profil ne correspond aux critères.");
+      info.textContent = "0 résultat.";
+      return;
+    }
+
+    results.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(r.personne)}</strong></td>
+        <td><span class="${getScoreClass(r.score)}">${r.score}</span></td>
+
+<td>
+  ${
+    (() => {
+      const grouped = {};
+
+      r.details.forEach(d => {
+        if (!grouped[d.techno]) {
+          grouped[d.techno] = [];
+        }
+        grouped[d.techno].push(d);
+      });
+
+      return Object.entries(grouped).map(([techno, items]) => `
+        <div class="techno-block">
+          <div class="techno-title">${escapeHtml(techno)}</div>
+          ${items.map(d => `
+            <div class="detail-sub">
+              • ${escapeHtml(d.domaine)} / ${escapeHtml(d.version)}
+              — niveau ${d.niveau} (+${d.pts})
+            </div>
+          `).join("")}
+        </div>
+      `).join("");
+    })()
+  }
+</td>
+
+      `;
+      tbody.appendChild(tr);
+    });
+
+    info.textContent = `${results.length} profil(s) classé(s) par score — ${criteriaToUse.length} critère(s) appliqué(s).`;
+
+  } catch (err) {
+    console.error("Erreur recherche:", err);
+    setEmpty(tbody, "Erreur lors de la recherche (voir console).");
+    info.textContent = "Erreur de recherche.";
+    await showAlert("Erreur lors de la recherche : " + err.message);
+  }
+}
+
+/* ================================
+   Reset formulaire + critères
+================================ */
+function resetForm() {
+  document.getElementById("techno-select").value = "";
+  document.getElementById("domaine-select").value = "";
+  document.getElementById("version-select").value = "";
+  document.getElementById("niveau-min-select").value = "2";
+  document.getElementById("actif-only").checked = true;
+
+  PROJECT_CRITERIA.length = 0;
+  renderCriteriaList();
+
+  document.getElementById("results-info").textContent = "Aucune recherche lancée.";
+  document.getElementById("results-body").innerHTML = `<tr><td colspan="3">Lance une recherche.</td></tr>`;
+
+  
+  document.getElementById("category-select").value = "";
+  populateSelect(document.getElementById("techno-select"), [], "-- Choisir une techno --");
+}
+
+/* ================================
+   Events + init
+================================ */
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document.getElementById("add-criterion-btn").addEventListener("click", async () => {
+  const c = await readCurrentCriterion();
+  if (!c) return;
+  PROJECT_CRITERIA.push(c);
+  renderCriteriaList();
+});
+
+
+document.getElementById("category-select").addEventListener("change", async (e) => {
+  const category = e.target.value;
+  const technoSelect = document.getElementById("techno-select");
+
+  // reset techno
+  populateSelect(technoSelect, [], "-- Choisir une techno --");
+
+  if (!category) return;
+
+  try {
+    const technos = await fetchJson(
+      `${API_BASE_URL}/ref/technos?category=${encodeURIComponent(category)}`
+    );
+
+    populateSelect(technoSelect, technos, "-- Choisir une techno --");
+
+  } catch (err) {
+    console.error("Erreur chargement technos:", err);
+    await showAlert("Impossible de charger les technologies.");
+  }
+});
+
+
+document.getElementById("search-btn").addEventListener("click", search);
+document.getElementById("reset-btn").addEventListener("click", resetForm);
+
+loadRefs().then(renderCriteriaList);
+</script>
+
+</body>
+</html>

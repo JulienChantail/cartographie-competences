@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables d'environnement
+.env
+
+# Fichiers temporaires
+*.swp
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Neo4j
+*.tar.gz
+
+# Système
+.DS_Store
+Thumbs.db

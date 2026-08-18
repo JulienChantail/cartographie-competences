@@ -1,0 +1,648 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Profils — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+
+<header>
+  <div class="topbar">
+    <h1>Profils</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html" class="active">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+
+
+<main>
+  <!-- Sélection + aide -->
+  <section class="card">
+    <h2>Sélection d’un profil</h2>
+
+    <div class="form-grid">
+      <div class="field" style="grid-column: 1 / -1;">
+        <label for="personne-select">Personne</label>
+        <select id="personne-select">
+          <option value="">-- Sélectionner une personne --</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="delete-person-area" style="display:none; margin-top:10px;">
+      <button id="delete-person-btn" type="button" class="btn btn-ghost btn-small" style="color:#c0392b; border-color:#c0392b;">
+        🗑️ Demander la suppression de ce profil
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+  </section>
+
+
+<div class="divider"></div>
+
+
+<div id="network-container" style="display:none;">
+  <h3>Visualisation des compétences</h3>
+  <div id="network" style="height: 500px; border:1px solid #eee; border-radius:10px;"></div>
+</div>
+
+
+
+  <!-- Compétences -->
+  <section class="card">
+    <h2>Compétences</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Les actions “Modifier” / “Supprimer” créent une demande soumise à validation.
+    </p>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Techno</th>
+            <th>Domaine</th>
+            <th>Version</th>
+            <th>Niveau</th>
+            <th>Actif</th>
+            <th>Description</th>
+            <th>Dernière MAJ</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="competences-body">
+          <tr>
+            <td colspan="8">Sélectionnez une personne</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </section>
+</main>
+
+
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+<script src="common.js"></script>
+<script>
+
+let pendingRequests = [];
+
+
+/* ================================
+   Helpers
+================================ */
+function escapeHtml(value) {
+  // Petite protection basique si jamais des descriptions contiennent des caractères HTML
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  // value vient souvent sous forme string "2026-04-23T10:00:00Z" ou similaire
+  // On tente de parser, sinon on affiche brut
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString("fr-FR");
+}
+
+/* ================================
+   Chargement des personnes
+================================ */
+
+async function loadPersonnes() {
+  try {
+    // ✅ Appel API AUTHENTIFIÉ
+    const personnes = await fetchJson(`${API_BASE_URL}/personnes`);
+
+    const select = document.getElementById("personne-select");
+
+    // ✅ Réinitialiser les options sauf la première
+    select.querySelectorAll("option:not(:first-child)").forEach(o => o.remove());
+
+    // ✅ Remplir la liste
+    personnes.forEach(p => {
+      const option = document.createElement("option");
+      option.value = p.nom;
+      option.textContent = p.nom;
+      select.appendChild(option);
+    });
+
+  } catch (error) {
+    console.error("Erreur chargement personnes :", error);
+    await showAlert("Impossible de charger les personnes.");
+  }
+}
+
+
+
+async function loadPendingRequests(personne) {
+  try {
+    pendingRequests = await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(personne)}/demandes`
+    ) || [];
+  } catch (err) {
+    console.error("Erreur loadPendingRequests:", err);
+    pendingRequests = [];
+  }
+}
+
+
+function hasPendingRequest(techno, domaine, version) {
+  return pendingRequests.some(r =>
+    r.techno === techno &&
+    r.domaine === domaine &&
+    r.version === version
+  );
+}
+
+/* ================================
+   Suppression d'une compétence
+   (retour au 'false par défaut' => suppression relation COMPETENCE)
+================================ */
+
+
+async function deleteCompetence(nomPersonne, competence) {
+  
+  if (hasPendingRequest(
+    competence.techno,
+    competence.domaine,
+    competence.version,
+  )) {
+    await showAlert("Une demande est déjà en attente pour cette compétence.");
+    return;
+  }
+
+  const ok = await showConfirm(
+    `Demander la suppression de la compétence :\n\n` +
+    `${competence.techno} / ${competence.domaine} / ${competence.version}\n\n` +
+    `Cette action devra être validée par un manager.`,
+    { danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    // ✅ Appel API AUTHENTIFIÉ
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          techno: competence.techno,
+          domaine: competence.domaine,
+          version: competence.version,
+
+          // ⛔ Suppression demandée → même niveau, suppression logique via demande
+          niveau: competence.niveau,
+          description: "suppression"
+        })
+      }
+    );
+
+    await showAlert("✅ Demande de suppression soumise à validation manager.");
+
+    await loadPendingRequests(nomPersonne);
+    await loadCompetences(nomPersonne);
+
+
+  } catch (error) {
+    console.error("Erreur demande suppression compétence :", error);
+    await showAlert("Impossible de soumettre la demande de suppression : " + error.message);
+  }
+}
+
+
+
+
+
+
+async function editCompetence(nomPersonne, competence) {
+
+if (hasPendingRequest(
+  competence.techno,
+  competence.domaine,
+  competence.version,
+)) {
+  await showAlert("Une demande est déjà en attente pour cette compétence.");
+  return;
+}
+
+
+  // 1️⃣ Demander le nouveau niveau
+  const newNiveau = await showPrompt(
+    `Modifier le niveau (1, 2 ou 3)\nNiveau actuel : ${competence.niveau}`,
+    competence.niveau
+  );
+
+  if (newNiveau === null) return; // Annulation
+
+  const niveauInt = parseInt(newNiveau, 10);
+  if (![1, 2, 3].includes(niveauInt)) {
+    await showAlert("Niveau invalide (1, 2 ou 3 seulement).");
+    return;
+  }
+
+  // 2️⃣ Demander la nouvelle description
+  const newDescription = await showPrompt(
+    "Modifier la description",
+    competence.description ?? ""
+  );
+
+  try {
+    // 3️⃣ Appel API AUTHENTIFIÉ (demande soumise à validation manager)
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          techno: competence.techno,
+          domaine: competence.domaine,
+          version: competence.version,
+          niveau: niveauInt,
+          description: newDescription
+        })
+      }
+    );
+
+    await showAlert("✅ Demande de modification soumise à validation manager.");
+
+    await loadPendingRequests(nomPersonne);
+    await loadCompetences(nomPersonne);
+
+
+  } catch (error) {
+    console.error("Erreur modification compétence :", error);
+    await showAlert("Impossible de modifier la compétence : " + error.message);
+  }
+}
+
+
+
+/* ================================
+   Suppression d'un profil (demande)
+================================ */
+
+async function requestPersonDeletion(nomPersonne) {
+  const raison = await showPrompt(
+    `Demander la suppression du profil "${nomPersonne}" ?\n\n` +
+    `Cette action devra être validée par un manager. Motif (optionnel) :`,
+    "",
+    { okText: "Demander la suppression", danger: true }
+  );
+
+  if (raison === null) return; // Annulation
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/suppression`,
+      {
+        method: "POST",
+        body: JSON.stringify({ raison: raison || null })
+      }
+    );
+
+    await showAlert("✅ Demande de suppression du profil soumise à validation manager.");
+
+  } catch (error) {
+    console.error("Erreur demande suppression profil :", error);
+    await showAlert("Impossible de soumettre la demande de suppression : " + error.message);
+  }
+}
+
+/* ================================
+   Chargement des compétences
+================================ */
+
+
+async function loadCompetences(nomPersonne) {
+
+  const tbody = document.getElementById("competences-body");
+  tbody.innerHTML = "";
+
+  if (!nomPersonne) {
+    tbody.innerHTML = `<tr><td colspan="8">Sélectionnez une personne</td></tr>`;
+    return;
+  }
+
+  // Placeholder loading
+  tbody.innerHTML = `<tr><td colspan="8">Chargement…</td></tr>`;
+
+  try {
+    // ✅ Appel API AUTHENTIFIÉ
+    const competences = await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences`
+    );
+
+    tbody.innerHTML = "";
+
+    if (!competences || competences.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="8">Aucune compétence trouvée (par défaut : non assigné)</td></tr>`;
+      return;
+    }
+
+    competences.forEach(c => {
+      const row = document.createElement("tr");
+
+      const actif = (c.actif !== false); // true par défaut
+      const actifLabel = actif ? "Oui" : "⏳ En attente";
+
+      
+      const pending = hasPendingRequest(c.techno, c.domaine, c.version);
+
+      const pendingBadge = pending
+        ? `<span class="pill" style="background:#fff3cd; color:#856404;">⏳ En attente</span>`
+        : "";
+
+
+      row.innerHTML = `
+        <td>${escapeHtml(c.techno)} ${pendingBadge}</td>
+        <td>${escapeHtml(c.domaine)}</td>
+        <td>${escapeHtml(c.version)}</td>
+        <td>${escapeHtml(String(c.niveau ?? "-"))}</td>
+        <td>${escapeHtml(actifLabel)}</td>
+        <td>${escapeHtml(c.description ?? "")}</td>
+        <td>${escapeHtml(formatDate(c.updatedAt))}</td>
+        <td>
+          <button class="btn-edit" type="button">Modifier</button>
+          <button class="btn-delete" type="button">Supprimer</button>
+        </td>
+      `;
+
+      const editBtn = row.querySelector(".btn-edit");
+      const deleteBtn = row.querySelector(".btn-delete");
+
+      // ✅ Empêcher une nouvelle demande si une demande est déjà en attente
+      
+      if (!actif || pending) {
+        editBtn.disabled = true;
+        deleteBtn.disabled = true;
+
+        editBtn.title = "Demande déjà en attente";
+          deleteBtn.title = "Demande déjà en attente";
+      } else {
+        editBtn.addEventListener("click", () =>
+          editCompetence(nomPersonne, c)
+        );
+
+        deleteBtn.addEventListener("click", () =>
+          deleteCompetence(nomPersonne, c)
+        );
+      }
+
+
+
+      tbody.appendChild(row);
+    });
+
+  } catch (error) {
+    console.error("Erreur chargement competences :", error);
+    tbody.innerHTML =
+      `<tr><td colspan="8">Erreur de chargement (${escapeHtml(error.message)})</td></tr>`;
+  }
+}
+
+
+
+
+
+function fetchJson(url, options = {}) {
+  const user = sessionStorage.getItem("currentUser");
+
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      ...(user ? { "X-User": user } : {})
+    }
+  }).then(async res => {
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+    return res.json();
+  });
+}
+
+
+
+
+
+
+
+async function loadGraph(personne) {
+
+  const containerWrapper = document.getElementById("network-container");
+  const container = document.getElementById("network");
+
+  // ✅ cacher si aucune personne
+  if (!personne) {
+    containerWrapper.style.display = "none";
+    container.innerHTML = "";
+    return;
+  }
+
+  // ✅ afficher
+  containerWrapper.style.display = "block";
+
+  try {
+    const data = await fetchJson(
+      `${API_BASE_URL}/graph?personne=${encodeURIComponent(personne)}`
+    );
+
+    // ✅ STYLE NODES (Neo4j-like)
+    data.nodes = data.nodes.map(n => {
+
+      // 🎯 Personne centrale
+      if (n.label === personne) {
+        return {
+          ...n,
+          color: {
+            background: "#FFA500",
+            border: "#cc8400"
+          },
+          size: 30,
+          font: { size: 14 }
+        };
+      }
+
+      // ✅ Techno
+      return {
+        ...n,
+        color: {
+          background: "#4CAF50",
+          border: "#2e7d32"
+        },
+        size: 18
+      };
+    });
+
+    const nodes = new vis.DataSet(data.nodes);
+    const edges = new vis.DataSet(data.edges);
+
+    const options = {
+
+      nodes: {
+        shape: "dot"
+      },
+
+      edges: {
+        color: "#bbb",
+        smooth: true,
+        arrows: "to"
+      },
+
+      physics: {
+        stabilization: false,
+        barnesHut: {
+          gravitationalConstant: -3000,
+          springLength: 120
+        }
+      },
+
+      interaction: {
+        hover: true
+      }
+    };
+
+    const network = new vis.Network(container, { nodes, edges }, options);
+
+    // ✅ CLICK INTERACTION CORRIGÉE
+    network.on("click", async function (params) {
+
+      // ✅ clic sur une relation (edge)
+      if (params.edges.length > 0) {
+
+        const edgeId = params.edges[0];
+        const edgeData = edges.get(edgeId);
+
+        let message = "📊 Détail compétence\n\n";
+        message += `Techno: ${nodes.get(edgeData.to).label}\n\n`;
+
+        // ✅ afficher tous les domaines liés
+        if (edgeData.details && edgeData.details.length > 0) {
+          edgeData.details.forEach(d => {
+            message += `${d.domaine} : N${d.niveau}\n`;
+          });
+        } else {
+          message += "Aucune information disponible";
+        }
+
+        await showAlert(message);
+      }
+
+      // ✅ clic sur un noeud (optionnel debug)
+      if (params.nodes.length > 0) {
+
+        const nodeId = params.nodes[0];
+        const nodeData = nodes.get(nodeId);
+
+        console.log("Node cliqué :", nodeData.label);
+      }
+
+    });
+
+  } catch (err) {
+    console.error("Erreur chargement graph:", err);
+  }
+}
+
+
+
+
+
+
+
+
+/* ================================
+   Événements
+================================ */
+
+document.getElementById("personne-select").addEventListener("change", async (e) => {
+  const personne = e.target.value;
+
+  const deleteArea = document.getElementById("delete-person-area");
+  deleteArea.style.display = personne ? "block" : "none";
+
+  if (!personne) {
+    loadCompetences("");
+    return;
+  }
+
+  await loadPendingRequests(personne);   // ✅ IMPORTANT
+  await loadCompetences(personne);
+  await loadGraph(personne);
+});
+
+document.getElementById("delete-person-btn").addEventListener("click", () => {
+  const personne = document.getElementById("personne-select").value;
+  if (personne) requestPersonDeletion(personne);
+});
+
+
+/* ================================
+   Initialisation
+================================ */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+loadPersonnes();
+</script>
+
+</body>
+</html>

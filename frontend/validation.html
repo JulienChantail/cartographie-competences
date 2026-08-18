@@ -1,0 +1,322 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Validation — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Validation des demandes</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html">Utilisateurs</a>
+    <a href="validation.html" class="active">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+<main>
+
+  <!-- ✅ LISTE DEMANDES -->
+  <section class="card">
+    <h2>Demandes en attente</h2>
+
+    <div class="actions">
+      <button id="refresh-btn" class="btn btn-secondary">Rafraîchir</button>
+    </div>
+
+    <div id="pending-info" class="muted" style="margin:10px 0;">
+      Chargement…
+    </div>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Personne</th>
+            <th>Techno</th>
+            <th>Domaine</th>
+            <th>Type</th>
+            <th>Version</th>
+            <th>Niveau</th>
+            <th>Description</th>
+            <th>Date</th>
+            <th class="right">Action</th>
+          </tr>
+        </thead>
+        <tbody id="pending-body">
+          <tr><td colspan="9">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+let pendingRequestVersion = 0;
+let decisionInProgress = false;
+
+// ✅ Sécurité : accès réservé aux admins
+if (currentRole !== "ADMIN") {
+  (async () => {
+    await showAlert("Accès réservé aux administrateurs.");
+    window.location.href = "index.html";
+  })();
+}
+
+
+/* =========================
+   UTIL
+========================= */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  return isNaN(d) ? value : d.toLocaleString("fr-FR");
+}
+
+
+function labelType(type) {
+  switch (type) {
+    case "COMPETENCE_REQUEST":
+      return "Demande compétence";
+    case "PERSON_CREATE":
+      return "Création personne";
+    case "PERSON_DELETE":
+      return "Suppression personne";
+    case "TECHNO_CREATE":
+      return "Création techno";
+    default:
+      return type || "-";
+  }
+}
+
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    cache: "no-store",
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || res.status);
+    return text ? JSON.parse(text) : null;
+  });
+}
+
+/* =========================
+   LOAD DEMANDES
+========================= */
+
+async function refreshPendingRequests() {
+
+  const currentVersion = ++pendingRequestVersion;
+
+  const info = document.getElementById("pending-info");
+  const tbody = document.getElementById("pending-body");
+
+  info.textContent = "Chargement…";
+  tbody.innerHTML = `<tr><td colspan="9">Chargement…</td></tr>`;
+
+  try {
+    const params = new URLSearchParams({
+      status: "PROPOSED",
+    });
+
+    const pending = await fetchJson(`${API_BASE_URL}/historique?${params}`);
+
+    if (currentVersion !== pendingRequestVersion) return;
+
+    const data = pending.filter(e => e.status === "PROPOSED");
+
+    if (data.length === 0) {
+      info.textContent = "Aucune demande en attente.";
+      tbody.innerHTML = `<tr><td colspan="9">Aucune donnée</td></tr>`;
+      return;
+    }
+
+    info.textContent = `${data.length} demande(s) en attente.`;
+    tbody.innerHTML = "";
+
+    data.forEach(event => {
+
+      const isCompetenceDelete =
+        event.type === "COMPETENCE_REQUEST" &&
+        event.after?.description === "suppression";
+
+      const isPersonDelete = event.type === "PERSON_DELETE";
+
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(event.personne || "-")}</strong></td>
+        <td>${escapeHtml(event.techno || "-")}</td>
+        <td>${escapeHtml(event.domaine || "-")}</td>
+        <td>${escapeHtml(labelType(event.type))}</td>
+        <td>${escapeHtml(event.version || "-")}</td>
+        <td>${
+          isCompetenceDelete || isPersonDelete
+            ? '<strong style="color:#c0392b;">Suppression</strong>'
+            : escapeHtml(event.after?.niveau ?? "-")
+        }</td>
+        <td>${
+          isPersonDelete
+            ? escapeHtml(event.after?.description || "Suppression de profil demandée")
+            : isCompetenceDelete
+              ? "<em>Suppression demandée</em>"
+              : escapeHtml(event.after?.description ?? "")
+        }</td>
+        <td>${formatDate(event.createdAt)}</td>
+        <td>
+          <button class="btn-validate">Valider</button>
+          <button class="btn-reject">Refuser</button>
+        </td>
+      `;
+
+      tr.querySelector(".btn-validate")
+        .onclick = () => validate(event);
+
+      tr.querySelector(".btn-reject")
+        .onclick = () => reject(event, tr);
+
+      tbody.appendChild(tr);
+    });
+
+  } catch (err) {
+    console.error(err);
+    info.textContent = "Erreur de chargement.";
+  }
+}
+
+
+/* =========================
+   ACTIONS
+========================= */
+async function validate(event) {
+  if (decisionInProgress) return;
+  decisionInProgress = true;
+
+  try {
+    const comment = await showPrompt("Commentaire (optionnel)");
+
+    await fetchJson(
+      `${API_BASE_URL}/historique/${event.id}/decision`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          decision: "VALIDATED",
+          comment
+        })
+      }
+    );
+
+  } catch (err) {
+    await showAlert(err.message);
+  } finally {
+    decisionInProgress = false;
+    refreshPendingRequests();
+  }
+}
+
+async function reject(event, row) {
+  if (decisionInProgress) return;
+
+  const comment = await showPrompt("Motif du refus (obligatoire)");
+
+  if (!comment) return;
+
+  decisionInProgress = true;
+  row.remove();
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/historique/${event.id}/decision`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          decision: "REJECTED",
+          comment
+        })
+      }
+    );
+  } catch (err) {
+    await showAlert(err.message);
+  } finally {
+    decisionInProgress = false;
+    refreshPendingRequests();
+  }
+}
+
+/* =========================
+   INIT
+========================= */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document.getElementById("refresh-btn").onclick = refreshPendingRequests;
+
+refreshPendingRequests();
+
+</script>
+
+</body>
+</html>

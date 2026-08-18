@@ -1,0 +1,754 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Questionnaire — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .questionnaire-intro {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    @media (max-width: 700px) {
+      .questionnaire-intro {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .hint {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+    }
+
+    .techno-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.05);
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .techno-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .techno-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .techno-subtitle {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .techno-body {
+      margin-top: 10px;
+    }
+
+    .questionnaire-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    .questionnaire-table th,
+    .questionnaire-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .questionnaire-table th:first-child,
+    .questionnaire-table td:first-child {
+      text-align: left;
+      width: 240px;
+      font-weight: 600;
+    }
+
+    .questionnaire-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .domain-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .domain-note {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .radio-disabled {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    .category-block + .category-block {
+      margin-top: 18px;
+    }
+
+    .category-title {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .category-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .category-body {
+      display: none;
+    }
+
+    .submit-zone {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      min-height: 42px;
+      margin: 0;
+    }
+
+    .summary-box {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255,255,255,0.05);
+      margin-top: 14px;
+      white-space: pre-line;
+    }
+
+    .legend-list {
+      margin: 10px 0 0 18px;
+      color: var(--text-muted);
+    }
+
+    
+    .sticky-submit {
+  position: sticky;
+  bottom: 12px;
+  z-index: 10;
+
+  background: #e5e7eb;   /* gris clair */
+  border: 1px solid #d1d5db;
+
+  border-radius: 16px;
+  padding: 8px 12px;
+
+  box-shadow: var(--shadow-soft);
+  margin-top: 12px;
+  }
+
+  </style>
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Questionnaire</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html" class="active">Questionnaire</a>
+  </nav>
+
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>Identité</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Ce questionnaire est rempli uniquement pour la personne connectée.
+      Remplis ton Prénom et ton NOM sous ce format : <strong>Prénom NOM</strong>.
+    </p>
+
+    <div class="questionnaire-intro">
+      <div class="field">
+        <label for="prenom-input">Prénom</label>
+        <input id="prenom-input" type="text" placeholder="Ex : Julien" />
+      </div>
+
+      <div class="field">
+        <label for="nom-input">NOM</label>
+        <input id="nom-input" type="text" placeholder="Ex : CHANTAIL" />
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>Référentiel des niveaux</h3>
+    <p class="muted" style="margin-top:-4px;">
+      Pour chaque techno, choisis ton niveau par domaine pratiqué.
+    </p>
+
+    <ul class="legend-list">
+      <li><strong>N0</strong> = non pratiqué</li>
+      <li><strong>N1</strong> = opérationnel assisté (Run uniquement)</li>
+      <li><strong>N2</strong> = autonome</li>
+      <li><strong>N3</strong> = expert / référent</li>
+    </ul>
+
+    <p class="hint" style="margin-top:10px;">
+      Cette auto-évaluation vise avant tout à se positionner globalement.
+      Si un domaine reste à <strong>N0</strong>, aucune compétence ne sera soumise pour ce domaine.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Questionnaire</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Pour chaque catégorie, indique si tu l’as déjà utilisée.
+      Si oui, tu pourras ensuite détailler niveau sur chaque techno.
+    </p>
+
+    <div id="questionnaire-root"></div>
+
+    <div class="sticky-submit">
+      <div class="submit-zone">
+        <button id="submit-btn" type="button" class="btn btn-primary">Soumettre le questionnaire</button>
+        <span id="submit-status" class="muted"></span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+/* =========================================================
+   Référentiel du questionnaire
+========================================================= */
+const QUESTIONNAIRE = [
+  {
+    category: "Oracle",
+    type: "SGBD",
+    technos: [
+      "Oracle Standalone",
+      "Oracle RAC",
+      "Oracle DataGuard",
+      "Oracle Exadata"
+    ]
+  },
+  {
+    category: "PostgreSQL",
+    type: "SGBD",
+    technos: [
+      "PostgreSQL Standalone",
+      "PostgreSQL Replication",
+      "PostgreSQL HA (Patroni)"
+    ]
+  },
+  {
+    category: "SQL Server",
+    type: "SGBD",
+    technos: [
+      "SQL Server Standalone",
+      "SQL Server AlwaysOn"
+    ]
+  },
+  {
+    category: "MariaDB",
+    type: "SGBD",
+    technos: [
+      "MariaDB Standalone",
+      "MariaDB Replication",
+      "MariaDB Galera"
+    ]
+  },
+  {
+    category: "MySQL",
+    type: "SGBD",
+    technos: [
+      "MySQL Standalone",
+      "MySQL Replication",
+      "MySQL Group Replication"
+    ]
+  },
+  {
+    category: "MongoDB",
+    type: "SGBD",
+    technos: [
+      "MongoDB Standalone",
+      "MongoDB ReplicaSet",
+      "MongoDB Sharded",
+      "MongoDB Atlas"
+    ]
+  },
+  {
+    category: "Cassandra",
+    type: "SGBD",
+    technos: [
+      "Cassandra Cluster",
+      "Cassandra Exploitation"
+    ]
+  },
+  {
+    category: "Python",
+    type: "AUTRE",
+    technos: [
+      "Python Automatisation",
+      "Python Data",
+      "Python API"
+    ]
+  },
+  {
+    category: "Ansible",
+    type: "AUTRE",
+    technos: [
+      "Ansible Playbooks",
+      "Ansible DB Automation"
+    ]
+  },
+  {
+    category: "Kafka",
+    type: "AUTRE",
+    technos: [
+      "Kafka Exploitation",
+      "Kafka Administration"
+    ]
+  },
+  {
+    category: "Bash",
+    type: "AUTRE",
+    technos: [
+      "Bash Scripting"
+    ]
+  },
+  {
+    category: "Kubernetes",
+    type: "AUTRE",
+    technos: [
+      "Kubernetes Exploitation",
+      "Kubernetes Administration"
+    ]
+  }
+];
+
+const DOMAINS_BY_TYPE = {
+  SGBD: [
+    { value: "Run MCO", label: "Run MCO", allowN1: true, note: "Exploitation" },
+    { value: "Build", label: "Build", allowN1: false, note: "Installation / configuration" },
+    { value: "Architecture", label: "Architecture", allowN1: false, note: "Conception / expertise" }
+  ],
+  AUTRE: [
+    { value: "Autre", label: "Autre", allowN1: false, note: "Usage global" }
+  ]
+};
+
+/* =========================================================
+   Helpers
+========================================================= */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    const text = await res.text().catch(() => "");
+
+    if (!res.ok) {
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    return text ? JSON.parse(text) : null;
+  });
+}
+
+function normalizeString(v) {
+  return (v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function composeIdentity() {
+  const prenom = document.getElementById("prenom-input").value.trim();
+  const nom = document.getElementById("nom-input").value.trim();
+
+  return {
+    prenom,
+    nom,
+    fullNameInput: `${prenom} ${nom}`.trim()
+  };
+}
+
+function isUpperSurname(value) {
+  if (!value) return false;
+  return value === value.toUpperCase();
+}
+
+function getStatusEl() {
+  return document.getElementById("submit-status");
+}
+
+function setStatus(message) {
+  getStatusEl().textContent = message || "";
+}
+
+/* =========================================================
+   Render questionnaire
+========================================================= */
+function buildRadioName(techno, domainValue) {
+  return `lvl__${techno}__${domainValue}`;
+}
+
+function resetTechnoCard(card) {
+  const body = card.querySelector(".techno-body");
+  const knownToggle = card.querySelector(".techno-known-toggle");
+
+  knownToggle.checked = false;
+  body.style.display = "none";
+
+  card.querySelectorAll('input[type="radio"]').forEach(r => {
+    if (r.value === "0") r.checked = true;
+  });
+}
+
+function resetCategoryBlock(categoryBlockEl) {
+  categoryBlockEl.querySelectorAll(".techno-card").forEach(card => {
+    resetTechnoCard(card);
+  });
+}
+
+function renderQuestionnaire() {
+  const root = document.getElementById("questionnaire-root");
+  root.innerHTML = "";
+
+  QUESTIONNAIRE.forEach(categoryBlock => {
+    const categoryDiv = document.createElement("div");
+    categoryDiv.className = "category-block";
+    categoryDiv.dataset.category = categoryBlock.category;
+    categoryDiv.dataset.type = categoryBlock.type;
+
+    categoryDiv.innerHTML = `
+      <div class="category-header">
+        <div>
+          <h3 class="category-title">${escapeHtml(categoryBlock.category)}</h3>
+          <div class="hint">${escapeHtml(categoryBlock.type)}</div>
+        </div>
+
+        <label style="display:flex; gap:10px; align-items:center; margin:0;">
+          <input type="checkbox" class="category-known-toggle" />
+          J’ai déjà utilisé ${escapeHtml(categoryBlock.category)}
+        </label>
+      </div>
+
+      <div class="category-body"></div>
+    `;
+
+    const categoryBody = categoryDiv.querySelector(".category-body");
+
+    categoryBlock.technos.forEach(techno => {
+      const domains = DOMAINS_BY_TYPE[categoryBlock.type] || [];
+
+      const card = document.createElement("div");
+      card.className = "techno-card";
+      card.dataset.techno = techno;
+      card.dataset.category = categoryBlock.category;
+      card.dataset.type = categoryBlock.type;
+
+      card.innerHTML = `
+        <div class="techno-head">
+          <div>
+            <div class="techno-title">${escapeHtml(techno)}</div>
+            <div class="techno-subtitle">${escapeHtml(categoryBlock.category)} — ${escapeHtml(categoryBlock.type)}</div>
+          </div>
+
+          <label style="display:flex; gap:10px; align-items:center; margin:0;">
+            <input type="checkbox" class="techno-known-toggle" />
+            J’ai déjà utilisé cette techno
+          </label>
+        </div>
+
+        <div class="techno-body" style="display:none;">
+          <div class="table-wrap">
+            <table class="questionnaire-table">
+              <thead>
+                <tr>
+                  <th>Domaine</th>
+                  <th>N0</th>
+                  <th>N1</th>
+                  <th>N2</th>
+                  <th>N3</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${domains.map(domain => `
+                  <tr>
+                    <td>
+                      <span class="domain-label">${escapeHtml(domain.label)}</span>
+                      <span class="domain-note">${escapeHtml(domain.note)}</span>
+                    </td>
+                    ${[0,1,2,3].map(level => {
+                      const disabled = (level === 1 && !domain.allowN1) ? "disabled" : "";
+                      const radioDisabledClass = (level === 1 && !domain.allowN1) ? "radio-disabled" : "";
+                      const checked = (level === 0) ? "checked" : "";
+
+                      return `
+                        <td class="${radioDisabledClass}">
+                          <input
+                            type="radio"
+                            name="${escapeHtml(buildRadioName(techno, domain.value))}"
+                            value="${level}"
+                            ${checked}
+                            ${disabled}
+                          />
+                        </td>
+                      `;
+                    }).join("")}
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      categoryBody.appendChild(card);
+    });
+
+    root.appendChild(categoryDiv);
+  });
+
+  document.querySelectorAll(".category-known-toggle").forEach(toggle => {
+    toggle.addEventListener("change", e => {
+      const categoryBlockEl = e.target.closest(".category-block");
+      const body = categoryBlockEl.querySelector(".category-body");
+      const checked = e.target.checked;
+
+      body.style.display = checked ? "block" : "none";
+
+      if (!checked) {
+        resetCategoryBlock(categoryBlockEl);
+      }
+    });
+  });
+
+  document.querySelectorAll(".techno-known-toggle").forEach(toggle => {
+    toggle.addEventListener("change", e => {
+      const card = e.target.closest(".techno-card");
+      const body = card.querySelector(".techno-body");
+      const checked = e.target.checked;
+
+      body.style.display = checked ? "block" : "none";
+
+      if (!checked) {
+        card.querySelectorAll('input[type="radio"]').forEach(r => {
+          if (r.value === "0") r.checked = true;
+        });
+      }
+    });
+  });
+}
+
+/* =========================================================
+   Collecte des réponses
+========================================================= */
+function collectQuestionnaireData() {
+  const categoryBlocks = document.querySelectorAll(".category-block");
+  const answers = [];
+
+  categoryBlocks.forEach(categoryBlock => {
+    const categoryKnown = categoryBlock.querySelector(".category-known-toggle").checked;
+    if (!categoryKnown) return;
+
+    const cards = categoryBlock.querySelectorAll(".techno-card");
+
+    cards.forEach(card => {
+      const techno = card.dataset.techno;
+      const category = card.dataset.category;
+      const type = card.dataset.type;
+      const known = card.querySelector(".techno-known-toggle").checked;
+
+      if (!known) return;
+
+      const domains = DOMAINS_BY_TYPE[type] || [];
+
+      domains.forEach(domain => {
+        const selected = card.querySelector(
+          `input[name="${CSS.escape(buildRadioName(techno, domain.value))}"]:checked`
+        );
+
+        const niveau = selected ? parseInt(selected.value, 10) : 0;
+
+        if (!Number.isFinite(niveau) || niveau <= 0) return;
+
+        answers.push({
+          techno,
+          domaine: domain.value,
+          version: "N/A",
+          niveau,
+          description: "Questionnaire interne"
+        });
+      });
+    });
+  });
+
+  return answers;
+}
+
+/* =========================================================
+   Résolution de la personne cible
+========================================================= */
+async function resolveTargetPerson() {
+  const { prenom, nom, fullNameInput } = composeIdentity();
+
+  if (!prenom || !nom) {
+    throw new Error("Le prénom et le NOM sont obligatoires.");
+  }
+
+  if (!isUpperSurname(nom)) {
+    throw new Error("Le champ NOM doit être saisi en majuscules.");
+  }
+
+  const personnes = await fetchJson(`${API_BASE_URL}/personnes`);
+
+  const normalizedInput = normalizeString(fullNameInput);
+
+  const match = (personnes || []).find(p => normalizeString(p.nom) === normalizedInput);
+
+  return {
+    enteredName: fullNameInput,
+    matchedName: match ? match.nom : null
+  };
+}
+
+/* =========================================================
+   Soumission : UNE SEULE DEMANDE
+========================================================= */
+async function submitQuestionnaire() {
+  setStatus("");
+
+  const submitBtn = document.getElementById("submit-btn");
+  submitBtn.disabled = true;
+
+  try {
+    const { prenom, nom, fullNameInput } = composeIdentity();
+
+    if (!prenom || !nom) {
+      throw new Error("Le prénom et le NOM sont obligatoires.");
+    }
+
+    if (!isUpperSurname(nom)) {
+      throw new Error("Le champ NOM doit être saisi en majuscules.");
+    }
+
+    const answers = collectQuestionnaireData();
+
+    if (!answers.length) {
+      throw new Error("Aucune compétence > N0 sélectionnée.");
+    }
+
+    const identityResolution = await resolveTargetPerson();
+
+    const targetPerson = identityResolution.matchedName || fullNameInput;
+
+    await fetchJson(`${API_BASE_URL}/questionnaire`, {
+      method: "POST",
+      body: JSON.stringify({
+        personne: targetPerson,
+        competences: answers
+      })
+    });
+
+    setStatus("✅ Questionnaire soumis");
+
+  } catch (err) {
+    setStatus(`❌ ${err.message}`);
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+/* =========================================================
+   Init
+========================================================= */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document.getElementById("submit-btn").addEventListener("click", submitQuestionnaire);
+
+renderQuestionnaire();
+</script>
+
+</body>
+</html>

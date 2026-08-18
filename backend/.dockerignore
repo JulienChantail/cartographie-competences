@@ -1,0 +1,5 @@
+.env
+.env example.txt
+__pycache__
+*.pyc
+.git

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Utilisateurs — Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <style>
+    .user-form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    @media (max-width: 900px) {
+      .user-form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .role-admin {
+      background: rgba(59, 130, 246, 0.16);
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+
+    .role-user {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .danger-text {
+      color: #ef4444;
+      font-weight: 700;
+    }
+
+    .success-text {
+      color: #10b981;
+      font-weight: 700;
+    }
+
+    .small-muted {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <div class="topbar">
+    <h1>Gestion des utilisateurs</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class = "active">Utilisateurs</a>
+    <a href="validation.html">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>Créer un utilisateur</h2>
+
+    <p class="muted" style="margin-top:-6px;">
+      L’adresse mail doit respecter le format :
+      <strong>prenom.nom@capgemini.com</strong>
+    </p>
+
+    <div class="user-form-grid">
+
+      <div class="field">
+        <label for="new-email">Adresse mail</label>
+        <input
+          id="new-email"
+          type="email"
+          placeholder="prenom.nom@capgemini.com"
+        />
+      </div>
+
+      <div class="field">
+        <label for="new-password">Mot de passe initial</label>
+        <input
+          id="new-password"
+          type="password"
+          placeholder="Mot de passe"
+        />
+      </div>
+
+      <div class="field">
+        <label for="new-role">Rôle</label>
+        <select id="new-role">
+          <option value="USER" selected>USER</option>
+          <option value="ADMIN">ADMIN</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <button id="create-user-btn" type="button" class="btn btn-primary">
+          Créer l’utilisateur
+        </button>
+      </div>
+
+    </div>
+
+    <div id="create-status" class="muted" style="margin-top:12px;"></div>
+  </section>
+
+  <section class="card">
+    <h2>Comptes existants</h2>
+
+    <div id="users-info" class="muted" style="margin-bottom:10px;">
+      Chargement…
+    </div>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Rôle</th>
+            <th>Actif</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="users-body">
+          <tr>
+            <td colspan="4">Chargement…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+if (currentRole !== "ADMIN") {
+  (async () => {
+    await showAlert("Accès réservé aux administrateurs.");
+    window.location.href = "index.html";
+  })();
+}
+
+let USERS = [];
+
+/* =========================
+   Helpers
+========================= */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function isCapgeminiEmail(email) {
+  return /^[a-zA-Z]+(?:[-][a-zA-Z]+)?\.[a-zA-Z]+(?:[-][a-zA-Z]+)?@capgemini\.com$/.test(email);
+}
+
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+function adminCount() {
+  return USERS.filter(u => u.role === "ADMIN" && u.active !== false).length;
+}
+
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    const text = await res.text().catch(() => "");
+
+    if (!res.ok) {
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    return text ? JSON.parse(text) : null;
+  });
+}
+
+function rolePill(role) {
+  if (role === "ADMIN") {
+    return `<span class="pill role-admin">ADMIN</span>`;
+  }
+
+  return `<span class="pill role-user">USER</span>`;
+}
+
+/* =========================
+   Chargement utilisateurs
+========================= */
+async function loadUsers() {
+  const tbody = document.getElementById("users-body");
+  const info = document.getElementById("users-info");
+
+  tbody.innerHTML = `<tr><td colspan="4">Chargement…</td></tr>`;
+  info.textContent = "Chargement des utilisateurs…";
+
+  try {
+    USERS = await fetchJson(`${API_BASE_URL}/users`) || [];
+
+    renderUsers();
+
+  } catch (err) {
+    console.error(err);
+    info.textContent = "Erreur de chargement.";
+    tbody.innerHTML =
+      `<tr><td colspan="4">Erreur : ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+/* =========================
+   Rendu tableau
+========================= */
+function renderUsers() {
+  const tbody = document.getElementById("users-body");
+  const info = document.getElementById("users-info");
+
+  tbody.innerHTML = "";
+
+  if (!USERS.length) {
+    info.textContent = "Aucun utilisateur.";
+    tbody.innerHTML = `<tr><td colspan="4">Aucun utilisateur</td></tr>`;
+    return;
+  }
+
+  const admins = adminCount();
+
+  info.textContent =
+    `${USERS.length} utilisateur(s) — ${admins} admin(s).`;
+
+  USERS.forEach(user => {
+    const tr = document.createElement("tr");
+
+    const email = user.email;
+    const role = user.role;
+    const active = user.active !== false;
+
+    const isLastAdmin =
+      role === "ADMIN" &&
+      active &&
+      admins <= 1;
+
+    const canDelete =
+      !(isLastAdmin);
+
+    const canDemote =
+      !(isLastAdmin);
+
+    tr.innerHTML = `
+      <td>
+        <strong>${escapeHtml(email)}</strong>
+        ${
+          email === currentUser
+            ? `<div class="small-muted">Compte connecté</div>`
+            : ""
+        }
+      </td>
+
+      <td>${rolePill(role)}</td>
+
+      <td>
+        ${
+          active
+            ? `<span class="success-text">Oui</span>`
+            : `<span class="danger-text">Non</span>`
+        }
+      </td>
+
+      <td class="right">
+        <div class="inline-actions">
+
+          ${
+            role === "ADMIN"
+              ? `<button class="btn btn-secondary btn-demote" type="button" ${canDemote ? "" : "disabled"}>
+                   Passer USER
+                 </button>`
+              : `<button class="btn btn-secondary btn-promote" type="button">
+                   Passer ADMIN
+                 </button>`
+          }
+
+          <button class="btn btn-danger btn-delete" type="button" ${canDelete ? "" : "disabled"}>
+            Supprimer
+          </button>
+
+        </div>
+      </td>
+    `;
+
+    const promoteBtn = tr.querySelector(".btn-promote");
+    const demoteBtn = tr.querySelector(".btn-demote");
+    const deleteBtn = tr.querySelector(".btn-delete");
+
+    if (promoteBtn) {
+      promoteBtn.addEventListener("click", () => updateRole(email, "ADMIN"));
+    }
+
+    if (demoteBtn) {
+      demoteBtn.addEventListener("click", async () => {
+        if (!canDemote) {
+          await showAlert("Impossible de rétrograder le dernier administrateur.");
+          return;
+        }
+
+        updateRole(email, "USER");
+      });
+    }
+
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async () => {
+        if (!canDelete) {
+          await showAlert("Impossible de supprimer le dernier administrateur.");
+          return;
+        }
+
+        deleteUser(email);
+      });
+    }
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* =========================
+   Création utilisateur
+========================= */
+async function createUser() {
+  const emailInput = document.getElementById("new-email");
+  const passwordInput = document.getElementById("new-password");
+  const roleSelect = document.getElementById("new-role");
+  const status = document.getElementById("create-status");
+
+  const email = normalizeEmail(emailInput.value);
+  const password = passwordInput.value;
+  const role = roleSelect.value;
+
+  status.textContent = "";
+
+  if (!email) {
+    status.textContent = "Adresse mail obligatoire.";
+    return;
+  }
+
+  if (!isCapgeminiEmail(email)) {
+    status.textContent =
+      "Format invalide. Utilise le format prenom.nom@capgemini.com";
+    return;
+  }
+
+  if (!password) {
+    status.textContent = "Mot de passe obligatoire.";
+    return;
+  }
+
+  if (!["ADMIN", "USER"].includes(role)) {
+    status.textContent = "Rôle invalide.";
+    return;
+  }
+
+  try {
+    await fetchJson(`${API_BASE_URL}/users`, {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+        role
+      })
+    });
+
+    status.textContent = "✅ Utilisateur créé.";
+
+    emailInput.value = "";
+    passwordInput.value = "";
+    roleSelect.value = "USER";
+
+    await loadUsers();
+
+  } catch (err) {
+    console.error(err);
+    status.textContent = "Erreur : " + err.message;
+  }
+}
+
+/* =========================
+   Changement rôle
+========================= */
+async function updateRole(email, role) {
+  if (!(await showConfirm(`Confirmer le passage de ${email} en ${role} ?`))) {
+    return;
+  }
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/users/${encodeURIComponent(email)}/role`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          role
+        })
+      }
+    );
+
+    await loadUsers();
+
+  } catch (err) {
+    console.error(err);
+    await showAlert("Erreur changement rôle : " + err.message);
+  }
+}
+
+/* =========================
+   Suppression utilisateur
+========================= */
+async function deleteUser(email) {
+  if (!(await showConfirm(`Supprimer l'utilisateur ${email} ?`, { danger: true }))) {
+    return;
+  }
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/users/${encodeURIComponent(email)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    if (email === currentUser) {
+      sessionStorage.clear();
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("currentRole");
+      window.location.href = "login.html";
+      return;
+    }
+
+    await loadUsers();
+
+  } catch (err) {
+    console.error(err);
+    await showAlert("Erreur suppression : " + err.message);
+  }
+}
+
+/* =========================
+   Init
+========================= */
+
+// ✅ Actions : changer d'utilisateur / déconnexion
+const switchBtn = document.getElementById("switch-user-btn");
+
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => {
+    window.location.href = "login.html";
+  });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+
+document
+  .getElementById("create-user-btn")
+  .addEventListener("click", createUser);
+
+loadUsers();
+</script>
+
+</body>
+</html>
