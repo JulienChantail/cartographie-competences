@@ -2,35 +2,59 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
+  <meta name="color-scheme" content="light">
   <title>Connexion — Cartographie DBA</title>
   <link rel="stylesheet" href="style.css">
+  
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f3f4f6;
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      margin: 0;
-    }
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+  }
 
-    .login-card {
-      background: white;
-      padding: 30px;
-      border-radius: 16px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-      width: 380px;
-    }
+  .login-card {
+    background: white !important;
+    color: #111827 !important;
+    padding: 30px;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    width: 380px;
+  }
 
-    .error {
-      margin-top: 12px;
-      color: #dc2626;
-      font-size: 0.95rem;
-    }
-    
-  </style>
+  /* Force toutes les couleurs de texte dans la carte */
+  .login-card,
+  .login-card * {
+    color: #111827 !important;
+  }
+
+  .login-card input {
+    background: white !important;
+    color: #111827 !important;
+    border: 1px solid #d1d5db !important;
+  }
+
+  .login-card input::placeholder {
+    color: #6b7280 !important;
+    opacity: 1;
+  }
+
+  .login-card label,
+  .login-card p,
+  .login-card h1 {
+    color: #111827 !important;
+  }
+
+  .error {
+    margin-top: 12px;
+    color: #dc2626 !important;
+    font-size: 0.95rem;
+  }
+</style>
 </head>
 
 <body>
@@ -43,7 +67,7 @@
 </button>
 
   <div class="login-card">
-      
+
     <h1>Connexion</h1>
 
     <p>
@@ -79,7 +103,7 @@
   <script>
     const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
       ? "http://localhost:8000"
-      : "/api";
+      : "/cartographie/api";
 
     function goBack() {
 

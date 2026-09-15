@@ -189,7 +189,7 @@ function escapeHtml(value) {
 }
 
 function isCapgeminiEmail(email) {
-  return /^[a-zA-Z]+(?:[-][a-zA-Z]+)?\.[a-zA-Z]+(?:[-][a-zA-Z]+)?@capgemini\.com$/.test(email);
+  return /^[a-zA-Z]+(?:-[a-zA-Z]+)?\.[a-zA-Z]+(?:-[a-zA-Z]+)?(?:@capgemini\.com)?$/.test(email);
 }
 
 function normalizeEmail(email) {

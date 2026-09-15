@@ -352,7 +352,7 @@ async function refreshSynthese() {
       const rows = compByCtx.get(key) || [];
 
       // Personnes qui couvrent >= niveauMin (actif=true)
-      const peopleCover = new Set();
+      const peopleCover = [];
       let hasAnyActive = false;
       let hasActiveBelowMin = false;
 
@@ -363,7 +363,10 @@ async function refreshSynthese() {
         if (actif && Number.isFinite(niveau)) {
           hasAnyActive = true;
           if (niveau >= niveauMin) {
-            peopleCover.add(r.personne);
+            peopleCover.push({
+              personne: r.personne,
+              niveau: niveau
+            });
           } else if (niveau > 0) {
             hasActiveBelowMin = true;
           }
@@ -371,14 +374,14 @@ async function refreshSynthese() {
       }
 
       let status = "NONE";
-      if (peopleCover.size > 0) status = "OK";
+      if (peopleCover.length > 0) status = "OK";
       else if (hasAnyActive || hasActiveBelowMin) status = "PARTIAL";
 
       const entry = {
         ...ctx,
         status,
-        people: peopleCover.size,
-        peopleList: Array.from(peopleCover).sort((a,b) => String(a).localeCompare(String(b), "fr"))
+        people: peopleCover.length,
+        peopleList: peopleCover.sort((a, b) => String(a.personne).localeCompare(String(b.personne), "fr"))
       };
       results.push(entry);
 
@@ -462,7 +465,7 @@ async function refreshSynthese() {
         ? `<details>
              <summary class="btn-mini">Voir (${r.peopleList.length})</summary>
              <div class="small" style="margin-top:8px;">
-               ${r.peopleList.map(p => `<div>• ${escapeHtml(p)}</div>`).join("")}
+               ${r.peopleList.map(p => `<div>• ${escapeHtml(p.personne)} (N${p.niveau})</div>`).join("")}
              </div>
            </details>`
         : `<span class="muted">—</span>`;

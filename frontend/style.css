@@ -1026,3 +1026,24 @@ td:nth-child(2) {
   background: #f9fafb !important;
 }
 
+
+
+input,
+select,
+textarea,
+select option,
+tbody td {
+  color: #111827 !important;
+}
+
+input,
+select,
+textarea {
+  background: #ffffff !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6b7280 !important;
+}
+

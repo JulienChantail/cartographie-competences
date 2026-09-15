@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import Header, HTTPException
 
 CAPGEMINI_EMAIL_REGEX = re.compile(
-    r"^[a-zA-Z]+(?:[-][a-zA-Z]+)?\.[a-zA-Z]+(?:[-][a-zA-Z]+)?@capgemini\.com$"
+    r"^[a-zA-Z]+(?:-[a-zA-Z]+)?\.[a-zA-Z]+(?:-[a-zA-Z]+)?(?:@capgemini\.com)?$"
 )
 
 
