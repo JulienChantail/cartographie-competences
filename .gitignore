@@ -18,7 +18,7 @@ __pycache__/
 *.log
 
 # Neo4j
-*.tar.gz
+#*.tar.gz
 
 # Système
 .DS_Store
