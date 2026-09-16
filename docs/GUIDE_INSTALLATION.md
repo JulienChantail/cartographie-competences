@@ -32,7 +32,16 @@ projet :
 | `neo4j` | Base de données (moteur de graphe) | `7474` (interface Neo4j Browser), `7687` (protocole Bolt utilisé par l'API) |
 | `backend` | API FastAPI (Python) | `8000` |
 | `frontend` | Pages HTML statiques, servies par Nginx | *(aucun port publié directement, accessible uniquement via `proxy`)* |
-| `proxy` | Reverse proxy Nginx — **point d'entrée unique de l'application** | `80` |
+| `proxy` | Reverse proxy Nginx — **point d'entrée unique de l'application** | `8088` (mappé vers le port `80` du conteneur — voir la remarque ci-dessous) |
+
+> **Port du proxy** : `docker-compose.yml` publie actuellement le port `80`
+> interne du conteneur `proxy` sur le port **`8088`** de la machine hôte
+> (`"8088:80"`). Ce n'est donc **pas** le port `80` standard qu'il faut
+> utiliser pour accéder à l'application depuis un navigateur en local —
+> voir `docker compose ps` pour vérifier le mapping réel à tout moment. Le
+> reste de ce guide utilise `http://localhost:8088`. Si ce mapping est
+> modifié dans `docker-compose.yml` (par exemple pour libérer le port 80
+> localement), adapter les URL en conséquence.
 
 Une seule commande (`docker compose up --build -d`) construit et démarre les
 4 conteneurs. Aucune autre installation logicielle (Python, Node.js, Neo4j
@@ -300,6 +309,61 @@ fichier `docker-compose.yml` à sa racine, ainsi que les dossiers `backend/`,
 référence pour toutes les commandes de ce guide (on l'appelle « la racine du
 projet »).
 
+### Workflow Git cible
+
+Le développement ne se fait **plus directement sur le serveur DESERVE**.
+Le circuit cible est :
+
+```
+PC local (développement)
+    │  git push
+    ▼
+GitLab (dépôt de référence de l'entreprise)
+    │  git pull
+    ▼
+Serveur DESERVE (/opt/cartographie-competences)
+    │  docker compose up -d --build
+    ▼
+Application en production
+```
+
+En pratique, pendant une phase de transition, un dépôt GitHub personnel
+peut servir de relais intermédiaire pour développer depuis un poste
+personnel (`PC perso → push → GitHub → pull sur PC pro → push → GitLab`) —
+GitHub n'est alors qu'un canal de transport temporaire, GitLab restant la
+source de vérité de l'entreprise. Dans tous les cas, la mise à jour du
+serveur suit toujours le même schéma : `git pull` sur le serveur, puis
+redémarrage des conteneurs concernés (voir le guide d'utilisation et
+d'administration, section F, pour la procédure de mise à jour détaillée).
+
+### Environnement de développement local du backend (optionnel, hors Docker)
+
+Le backend peut aussi tourner **directement sur le poste de développement**
+(hors conteneur), pratique pour un cycle de rechargement plus rapide que
+`docker compose up -d --build backend` à chaque changement. Neo4j reste, lui,
+lancé via Docker (`docker compose up -d neo4j`).
+
+```bash
+cd backend
+python -m venv .venv
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+# Variables d'environnement (le backend lit aussi un .env local via python-dotenv,
+# voir backend/database.py) : au minimum NEO4J_URI=bolt://localhost:7687 si Neo4j
+# tourne dans Docker avec le port 7687 publié sur l'hôte (cas par défaut, voir §1).
+python -m uvicorn main:app --reload --port 8000
+```
+
+Le dossier `backend/.venv/` est un environnement Python local **qui ne doit
+jamais être commité** (déjà exclu par `.gitignore`) : chaque poste de
+développement crée le sien avec les commandes ci-dessus.
+
 ---
 
 ## 4. Configuration des variables d'environnement
@@ -317,7 +381,7 @@ Contenu du modèle :
 ```env
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
-CORS_ORIGINS=http://localhost,http://localhost:8080,http://127.0.0.1:8080,http://cartographie-dba
+CORS_ORIGINS=http://localhost,http://localhost:8088,http://127.0.0.1:8088,http://localhost:8080,http://127.0.0.1:8080,http://cartographie-dba
 DEV_AUTH=true
 ```
 
@@ -340,17 +404,23 @@ const API_BASE_URL = window.location.hostname === "localhost" || window.location
 
 - Si l'application est ouverte via `http://localhost` ou `http://127.0.0.1`
   (poste de développement), le frontend appelle **directement** l'API sur
-  le port `8000` exposé par le conteneur `backend`. Il faut donc que
-  `http://localhost:8000` (ou `http://127.0.0.1:8000`) figure dans
+  le port `8000` exposé par le conteneur `backend`. La page elle-même
+  n'est accessible que via le `proxy` (le service `frontend` ne publie
+  aucun port — voir §1), donc sur ce poste de développement l'URL réelle
+  est `http://localhost:8088` (port hôte actuellement publié par `proxy`
+  dans `docker-compose.yml`, voir la remarque du guide d'architecture
+  §1.1). C'est cette origine (`http://localhost:8088`, pas `:8000`) que le
+  navigateur envoie comme `Origin` sur les appels API : il faut donc que
+  `http://localhost:8088` (ou `http://127.0.0.1:8088`) figure dans
   `CORS_ORIGINS`, sans quoi le navigateur bloquera les requêtes (erreur
-  CORS visible dans la console développeur).
+  CORS visible dans la console développeur, y compris sur `POST
+  /auth/login` depuis la page de connexion).
 - Pour tout autre nom d'hôte (serveur de production, nom de domaine
   interne), le frontend appelle `/api/...`, c'est-à-dire l'URL relative
-  au domaine courant — la requête passe alors par le `proxy` Nginx (port
-  80), qui la redirige vers `backend:8000` en interne. Dans ce cas,
-  `CORS_ORIGINS` a moins d'importance puisque la requête part du même
-  domaine que la page, mais il est recommandé d'y inclure l'URL publique
-  finale par cohérence.
+  au domaine courant — la requête passe alors par le `proxy` Nginx, qui la
+  redirige vers `backend:8000` en interne. Dans ce cas, `CORS_ORIGINS` a
+  moins d'importance puisque la requête part du même domaine que la page,
+  mais il est recommandé d'y inclure l'URL publique finale par cohérence.
 
 Modifier `.env` avec un éditeur de texte selon les besoins, puis
 l'enregistrer. Le fichier `.env` **ne doit jamais être commité dans Git**
@@ -484,7 +554,9 @@ d'administration).
 
 ### 6.4 Se connecter et finaliser l'amorçage
 
-1. Ouvrir **http://localhost**.
+1. Ouvrir **http://localhost:8088** (port hôte actuellement publié par le
+   service `proxy`, voir §1 et le guide d'architecture §1.1 — à vérifier
+   avec `docker compose ps` ou `docker-compose.yml` si ce port a changé).
 2. Se connecter avec l'email `admin` et le mot de passe défini à l'étape 6.2.
 3. Aller sur la page **Utilisateurs** et créer les comptes nominatifs réels
    de l'équipe (format `prenom.nom@capgemini.com`), avec le rôle `ADMIN`
@@ -519,7 +591,8 @@ Réponse attendue :
 ```
 
 Puis dans le navigateur :
-- **http://localhost** → page de connexion de l'application.
+- **http://localhost:8088** → page de connexion de l'application (port hôte
+  actuellement publié par `proxy`, voir §1).
 - **http://localhost:8000/docs** → documentation interactive de l'API
   (Swagger UI généré automatiquement par FastAPI), utile pour tester des
   appels sans passer par l'interface.
@@ -736,7 +809,7 @@ commandes s'exécutent alors sur la machine qui héberge les conteneurs).
 
 ```bash
 docker compose ps
-curl http://localhost/            # via le proxy, doit répondre (page HTML)
+curl http://localhost:8088/       # via le proxy (port hôte publié, voir §1), doit répondre (page HTML)
 curl http://localhost:8000/health # accès direct au backend
 ```
 

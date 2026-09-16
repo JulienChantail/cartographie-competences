@@ -69,6 +69,7 @@ class CompetenceRequest(BaseModel):
     version: str
     niveau: NiveauType
     description: Optional[str] = None
+    demande_suppression: bool = False
 
 
 class DecisionPayload(BaseModel):

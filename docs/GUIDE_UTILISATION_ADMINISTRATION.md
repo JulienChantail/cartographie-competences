@@ -4,10 +4,11 @@ Ce document couvre deux publics :
 
 - **Partie A** — les utilisateurs de l'application (équipe DBA) : comment
   s'en servir au quotidien.
-- **Parties B à H** — les administrateurs applicatifs et/ou serveur :
+- **Parties B à I** — les administrateurs applicatifs et/ou serveur :
   comment administrer les comptes, sauvegarder/restaurer les données,
-  gérer les images Docker et réaliser les mises à jour (dont Neo4j) en
-  gardant l'environnement fonctionnel.
+  gérer les images Docker, réaliser les mises à jour (dont Neo4j) en
+  gardant l'environnement fonctionnel, et localiser/explorer les données
+  stockées.
 
 Pour l'installation initiale, voir le
 [guide d'installation](GUIDE_INSTALLATION.md). Pour le détail technique du
@@ -27,6 +28,13 @@ Sommaire :
 - [F. Procédures de mise à jour](#f-procédures-de-mise-à-jour)
 - [G. Maintenance courante](#g-maintenance-courante)
 - [H. Incidents et dépannage administrateur](#h-incidents-et-dépannage-administrateur)
+- [I. Localisation et exploration des données](#i-localisation-et-exploration-des-données)
+  - [I.1 Où sont physiquement stockées les données](#i1-où-sont-physiquement-stockées-les-données)
+  - [I.2 Retrouver et inspecter le volume Docker](#i2-retrouver-et-inspecter-le-volume-docker)
+  - [I.3 Se connecter à Neo4j depuis le serveur](#i3-se-connecter-à-neo4j-depuis-le-serveur)
+  - [I.4 Exploration de la base Neo4j](#i4-exploration-de-la-base-neo4j)
+  - [I.5 Où sont stockés les événements d'audit](#i5-où-sont-stockés-les-événements-daudit)
+  - [I.6 Sauvegarder et vérifier qu'une sauvegarde est exploitable](#i6-sauvegarder-et-vérifier-quune-sauvegarde-est-exploitable)
 
 ---
 
@@ -34,8 +42,11 @@ Sommaire :
 
 ### A.1 Connexion
 
-Ouvrir l'application (`http://localhost` en local, ou l'URL du serveur en
-production, ex. `http://cartographie-dba`) puis se connecter avec :
+Ouvrir l'application (`http://localhost:8088` en local — port hôte
+actuellement publié par le service `proxy`, à vérifier avec `docker compose
+ps` en cas de doute —, ou l'URL du serveur en production, ex.
+`http://cartographie-dba` ou `http://deserve.corp.capgemini.com/cartographie/`)
+puis se connecter avec :
 
 - **Email** au format `prenom.nom@capgemini.com`
 - **Mot de passe** fourni par un administrateur
@@ -209,50 +220,66 @@ docker system df -v
 
 ## D. Sauvegarde et restauration de la base Neo4j
 
-### D.1 Sauvegarde
+> **Mise à jour importante** : les scripts `backup_neo4j.sh` et
+> `restore_neo4j.sh` utilisaient une syntaxe `neo4j-admin` obsolète
+> (`--to=`/`--from=`/`--overwrite=`, héritée de Neo4j 4.x) qui **ne
+> fonctionne plus du tout** sur la version `2026.03` réellement utilisée
+> par ce projet (`neo4j-admin` refuse l'argument et affiche son aide). Les
+> scripts ont été corrigés et **testés de bout en bout** (sauvegarde,
+> restauration sur un volume neuf, relecture des données) — voir ci-dessous
+> pour la procédure à jour.
 
-Le script `scripts/backup_neo4j.sh` automatise une sauvegarde à froid via
-`neo4j-admin database dump` :
+### D.0 Ce qu'il faut savoir avant de sauvegarder
+
+- L'image utilisée (`neo4j:2026.03`, voir `docker-compose.yml`) est
+  l'**édition Community** de Neo4j. Contrairement à l'édition Enterprise,
+  elle ne permet pas de sauvegarder une base **pendant qu'elle est montée
+  dans un serveur Neo4j en cours d'exécution** (`neo4j-admin database dump`
+  échoue avec `The database is in use` tant que le conteneur `neo4j`
+  tourne, et les commandes Cypher `STOP DATABASE`/`START DATABASE` sont
+  refusées en Community). **La sauvegarde comme la restauration
+  nécessitent donc un arrêt bref du conteneur `neo4j`** (quelques secondes
+  en pratique pour dumper les deux bases — mesuré sur une base de test :
+  moins d'une seconde pour ~260 Mo de données). Les deux scripts
+  automatisent cet arrêt/redémarrage.
+- Les deux scripts sauvegardent/restaurent **deux bases Neo4j distinctes** :
+  `neo4j` (toutes les données métier : `Personne`, `Techno`, `Contexte`,
+  `AuditEvent`, `User`... — voir section I ci-dessous) et `system` (le
+  catalogue interne de Neo4j : comptes/rôles Neo4j, registre des bases).
+  Les deux sont utiles pour une reprise fidèle du serveur.
+
+### D.1 Sauvegarde
 
 ```bash
 ./scripts/backup_neo4j.sh
 ```
 
-Contenu du script, pour référence :
+Ce que fait le script (voir `scripts/backup_neo4j.sh` pour le détail
+exact) :
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+1. Résout automatiquement le volume de données et l'image du conteneur
+   `cartographie-neo4j` en cours d'exécution (`docker inspect`).
+2. Arrête ce conteneur (`docker stop`).
+3. Démarre un conteneur temporaire, basé sur la **même image** et monté sur
+   le **même volume**, qui exécute `neo4j-admin database dump "*"
+   --to-path=... --overwrite-destination=true` (le motif `"*"` dumpe en un
+   seul appel toutes les bases présentes, ici `system` et `neo4j`).
+4. Copie les fichiers `system.dump` et `neo4j.dump` produits vers
+   `./backups/neo4j_backup_<horodatage>/` sur la machine hôte.
+5. **Redémarre systématiquement `cartographie-neo4j`** à la fin, y compris
+   si une étape a échoué en cours de route (`trap ... EXIT` dans le
+   script) — la base ne reste jamais arrêtée par accident.
 
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="$(pwd)/backups"
-mkdir -p "$BACKUP_DIR"
-
-CONTAINER_NAME="cartographie-neo4j"
-BACKUP_PATH="$BACKUP_DIR/neo4j_backup_${TIMESTAMP}"
-
-mkdir -p "$BACKUP_PATH"
-
-docker exec "$CONTAINER_NAME" sh -c 'mkdir -p /var/lib/neo4j/backups && /bin/neo4j-admin database dump --to=/var/lib/neo4j/backups/neo4j_backup'
-
-docker cp "$CONTAINER_NAME:/var/lib/neo4j/backups/neo4j_backup" "$BACKUP_PATH"
-
-echo "Sauvegarde créée dans $BACKUP_PATH"
-```
-
-Le résultat est déposé dans `./backups/neo4j_backup_<horodatage>/` (dossier
-créé automatiquement à la racine du projet, au niveau où la commande est
-lancée). **Ce script fonctionne base en ligne comme hors ligne** — `dump`
-prend un instantané cohérent sans nécessiter l'arrêt du conteneur.
-
-> Le dossier `backups/` n'est pas synchronisé ailleurs par défaut : pour une
-> vraie stratégie de sauvegarde de production, copier régulièrement son
-> contenu vers un stockage externe au serveur (autre machine, stockage
-> réseau, solution de sauvegarde de l'entreprise).
+> Le dossier `backups/` n'est pas synchronisé ailleurs par défaut (et est
+> exclu de Git via `.gitignore`) : pour une vraie stratégie de sauvegarde
+> de production, copier régulièrement son contenu vers un stockage externe
+> au serveur (autre machine, stockage réseau, solution de sauvegarde de
+> l'entreprise).
 
 **Planification automatique (recommandé en production)** : ajouter une
 tâche `cron` sur le serveur pour exécuter la sauvegarde quotidiennement,
-par exemple tous les jours à 2h du matin :
+par exemple tous les jours à 2h du matin (heure creuse, compte tenu de la
+brève coupure évoquée en D.0) :
 
 ```bash
 crontab -e
@@ -261,7 +288,7 @@ crontab -e
 Ajouter la ligne (adapter le chemin absolu vers le projet) :
 
 ```
-0 2 * * * cd /chemin/vers/Projet_cartographie_competences && ./scripts/backup_neo4j.sh >> /var/log/cartographie_backup.log 2>&1
+0 2 * * * cd /opt/cartographie-competences && ./scripts/backup_neo4j.sh >> /var/log/cartographie_backup.log 2>&1
 ```
 
 Penser à purger périodiquement les sauvegardes trop anciennes dans
@@ -273,40 +300,45 @@ Penser à purger périodiquement les sauvegardes trop anciennes dans
 ./scripts/restore_neo4j.sh backups/neo4j_backup_YYYYMMDD_HHMMSS
 ```
 
-Contenu du script, pour référence :
+Le dossier passé en argument doit contenir `neo4j.dump` et/ou
+`system.dump` (produits par D.1). Le script suit le même principe que la
+sauvegarde : arrêt de `cartographie-neo4j`, restauration via un conteneur
+temporaire sur le même volume (`neo4j-admin database load "*"
+--from-path=... --overwrite-destination=true`), puis redémarrage
+systématique du conteneur.
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+**Important** : `--overwrite-destination=true` **remplace entièrement** la
+base courante par le contenu du dump — toute donnée créée depuis la
+sauvegarde restaurée est perdue. Toujours effectuer une sauvegarde de
+l'état courant (D.1) **avant** de restaurer un ancien dump, au cas où la
+restauration devrait elle-même être annulée.
 
-BACKUP_SOURCE=${1:-}
-if [ -z "$BACKUP_SOURCE" ]; then
-  echo "Usage: $0 <chemin_backup>"
-  exit 1
-fi
-
-CONTAINER_NAME="cartographie-neo4j"
-
-docker cp "$BACKUP_SOURCE" "$CONTAINER_NAME:/var/lib/neo4j/backups/"
-
-docker exec "$CONTAINER_NAME" sh -c 'neo4j-admin database load --from=/var/lib/neo4j/backups/neo4j_backup --overwrite=true'
-
-echo "Restauration lancée depuis $BACKUP_SOURCE"
-```
-
-**Important** : contrairement à la sauvegarde, `neo4j-admin database load
---overwrite=true` **remplace entièrement** la base courante par le contenu
-du dump — toute donnée créée depuis la sauvegarde restaurée est perdue.
-Toujours effectuer une sauvegarde de l'état courant (D.1) **avant** de
-restaurer un ancien dump, au cas où la restauration devrait elle-même être
-annulée.
+> Si le dump de la base `system` provient d'une **autre** installation
+> Neo4j que celle sur laquelle il est rechargé (ex. copie d'un poste de
+> développement vers un autre), `neo4j-admin` affiche un avertissement
+> (« this system database dump may contain unwanted metadata for the DBMS
+> it was taken from »). C'est attendu et sans conséquence pour un usage de
+> ce projet (restauration d'une copie de la base de données métier à des
+> fins de développement ou de reprise après incident sur le même serveur),
+> mais à garder en tête avant de l'utiliser dans un autre contexte.
 
 Après une restauration, vérifier que l'application redevient cohérente :
 
 ```bash
-docker compose restart backend
+docker compose ps                    # cartographie-neo4j doit repasser (healthy)
 curl http://localhost:8000/health
 ```
+
+### D.3 Procédure validée (résumé du test effectué)
+
+La procédure ci-dessus a été testée intégralement en conditions réelles :
+sauvegarde d'une base peuplée (12 personnes, 34 technologies) avec
+`backup_neo4j.sh`, restauration de ce dump sur un volume Docker neuf, puis
+relecture des données (`MATCH (p:Personne) RETURN count(p)`) confirmant
+que les 12 personnes et l'intégralité du référentiel étaient bien
+présentes après restauration — avant application au conteneur réel de
+travail, restauré avec succès également. C'est cette procédure, et non
+l'ancienne syntaxe `--to=`/`--from=`, qui doit être suivie désormais.
 
 ---
 
@@ -385,6 +417,16 @@ d'une image, d'une dépendance Python, etc.) :
    commit antérieur, ou restauration manuelle des fichiers) puis répéter
    l'étape 2.
 
+> **Si l'application devient inaccessible via `proxy` après un rebuild**
+> (page blanche, erreur 502/504, alors que `curl http://localhost:8000/health`
+> direct au backend fonctionne) : redémarrer `proxy` — `docker compose
+> restart proxy`. Nginx résout le nom `backend` (ou `frontend`) en adresse
+> IP au démarrage et peut garder en cache une IP devenue obsolète après
+> qu'un conteneur a été recréé (`up -d --build`change son IP interne). Ce
+> problème de résolution DNS Docker a déjà été observé en exploitation —
+> le réflexe `docker compose restart proxy` après un rebuild de `backend`
+> ou `frontend` évite ce désagrément.
+
 ### F.2 Mettre à jour le frontend ou le proxy (image Nginx de base)
 
 Le tag de l'image de base (`nginx:1.27-alpine`) est fixé dans
@@ -401,7 +443,7 @@ Le tag de l'image de base (`nginx:1.27-alpine`) est fixé dans
    docker compose up -d --build proxy
    ```
 
-3. Vérifier que l'application reste accessible (`curl http://localhost/`)
+3. Vérifier que l'application reste accessible (`curl http://localhost:8088/`)
    et que la navigation fonctionne dans le navigateur.
 
 ### F.3 Mettre à jour Neo4j — procédure complète
@@ -574,3 +616,198 @@ Pour toute anomalie non couverte ici touchant au comportement du code
 (pas à l'infrastructure), se référer au
 [guide d'architecture](GUIDE_ARCHITECTURE.md) pour localiser le fichier
 responsable de la fonctionnalité concernée.
+
+---
+
+## I. Localisation et exploration des données
+
+Objectif de cette section : qu'un nouvel administrateur comprenne en moins
+de 10 minutes où sont les données, comment les consulter, comment les
+sauvegarder et comment les restaurer — sans avoir à lire tout le reste du
+guide.
+
+### I.1 Où sont physiquement stockées les données
+
+**Toutes** les données métier de l'application — profils (`Personne`),
+compétences (`COMPETENCE`, `Contexte`), référentiel (`Techno`,
+`TechnoCategory`, `Domaine`, `Version`), comptes (`User`) et historique des
+demandes/décisions (`AuditEvent`) — sont stockées dans **une seule base
+Neo4j** (label par label, voir I.4), elle-même stockée sur disque via un
+**volume Docker nommé**, complètement indépendant du cycle de vie des
+conteneurs (un `docker compose down` sans `-v`, ou un `docker compose up
+-d --build`, ne touche jamais à ce volume).
+
+Sur le serveur DESERVE :
+
+| Élément | Valeur |
+|---|---|
+| Conteneur | `cartographie-neo4j` |
+| Volume Docker | `cartographie-competences_neo4j_data` |
+| Chemin réel sur le serveur (hors conteneur) | `/var/lib/docker/volumes/cartographie-competences_neo4j_data/_data` |
+| Point de montage dans le conteneur | `/data` |
+
+Le nom du volume est dérivé automatiquement par Docker Compose du nom du
+dossier du projet sur le serveur (`/opt/cartographie-competences`, préfixe
+`cartographie-competences` une fois les caractères non alphanumériques
+normalisés) et du nom logique `neo4j_data` déclaré dans
+`docker-compose.yml`. **Sur un autre poste** (ex. un poste de
+développement où le dossier du projet ne s'appelle pas pareil), ce nom de
+volume sera différent — voir I.2 pour le retrouver dans tous les cas.
+
+Il existe un second volume, `..._neo4j_logs` (monté sur `/logs`), qui ne
+contient que les journaux du serveur Neo4j — pas de données applicatives.
+
+### I.2 Retrouver et inspecter le volume Docker
+
+```bash
+# État des 4 services (confirme que cartographie-neo4j tourne)
+docker compose ps
+
+# Détail du conteneur Neo4j : image, volumes montés, état de santé, réseau...
+docker inspect cartographie-neo4j
+
+# Lister tous les volumes Docker de la machine
+docker volume ls
+
+# Retrouver précisément le nom du volume de données monté sur /data
+# (fonctionne quel que soit le nom réel du dossier du projet)
+docker inspect cartographie-neo4j --format '{{range .Mounts}}{{.Name}} -> {{.Destination}}{{"\n"}}{{end}}'
+
+# Détail du volume : chemin réel sur disque (clé "Mountpoint"), date de création...
+docker volume inspect cartographie-competences_neo4j_data
+```
+
+`docker volume inspect` renvoie notamment un champ `"Mountpoint"` — c'est
+le chemin exact indiqué dans le tableau de I.1
+(`/var/lib/docker/volumes/<nom_du_volume>/_data`). **Ne jamais modifier ces
+fichiers directement** avec un éditeur de texte ou un outil autre que
+Neo4j lui-même (risque de corruption de la base) : ce chemin sert
+uniquement à la sauvegarde/restauration bas niveau (voir I.6) ou au
+diagnostic (espace disque utilisé, présence des fichiers attendue...).
+
+### I.3 Se connecter à Neo4j depuis le serveur
+
+Deux façons de consulter la base directement (sans passer par
+l'application ni par Neo4j Browser dans un navigateur) :
+
+```bash
+# Ouvrir un shell dans le conteneur (exploration de fichiers, logs internes...)
+docker exec -it cartographie-neo4j bash
+
+# Ouvrir une session Cypher interactive (requêtes sur les données)
+docker exec -it cartographie-neo4j cypher-shell -u neo4j -p <password>
+```
+
+Remplacer `<password>` par la valeur de `NEO4J_PASSWORD` du fichier `.env`
+du serveur (voir le guide d'installation, section 4). Une fois connecté
+via `cypher-shell`, toute requête Cypher standard fonctionne (voir I.4
+pour des exemples prêts à l'emploi) ; `:exit` pour quitter.
+
+Alternative avec interface graphique : **Neo4j Browser**, accessible à
+`http://<hôte>:7474` si ce port est exposé et atteignable depuis le poste
+utilisé (voir le guide d'installation, section 9.7, sur les restrictions
+de pare-feu recommandées en production — ce port ne devrait être ouvert
+qu'à un réseau d'administration restreint).
+
+### I.4 Exploration de la base Neo4j
+
+Requêtes de base pour comprendre rapidement ce que contient la base,
+utilisables aussi bien dans `cypher-shell` que dans Neo4j Browser :
+
+```cypher
+// Labels (types de nœuds) présents dans la base
+CALL db.labels();
+
+// Types de relations présents
+CALL db.relationshipTypes();
+
+// Nombre de nœuds par label — vue d'ensemble rapide du volume de données
+MATCH (n)
+RETURN labels(n), count(*);
+
+// Liste des comptes applicatifs et de leur rôle
+MATCH (u:User)
+RETURN u.email, u.role;
+
+// Nombre de personnes cartographiées
+MATCH (p:Personne)
+RETURN count(p);
+
+// Nombre de technologies référencées
+MATCH (t:Techno)
+RETURN count(t);
+```
+
+Pour aller plus loin, voici les principaux labels du modèle de données
+(détail complet, y compris les relations, dans le
+[guide d'architecture, section 2](GUIDE_ARCHITECTURE.md#2-modèle-de-données-neo4j)) :
+
+| Label | Contenu |
+|---|---|
+| `Personne` | Membres de l'équipe DBA cartographiés |
+| `Techno` / `TechnoCategory` | Référentiel des technologies et leurs catégories |
+| `Domaine` / `Version` | Référentiel des domaines d'usage et versions |
+| `Contexte` | Triplet unique techno/domaine/version, pivot des compétences |
+| `User` | Comptes applicatifs (email, mot de passe **en clair**, rôle) |
+| `AuditEvent` | Historique de toutes les demandes et décisions (voir I.5) |
+
+### I.5 Où sont stockés les événements d'audit
+
+Les événements d'audit (`AuditEvent` : demandes de création/modification/
+suppression de compétence, de personne, de technologie, et leurs
+décisions) sont des **nœuds Neo4j comme les autres**, dans la **même** base
+`neo4j` que le reste des données métier — il n'existe **pas** de stockage
+séparé (pas de fichier de log applicatif dédié, pas de base distincte).
+Ils sont donc automatiquement inclus dans toute sauvegarde de la base
+`neo4j` (voir D.1/I.6), et consultables :
+
+- via l'application, page **Historique** ;
+- via l'API, `GET /historique` ;
+- directement en Cypher :
+
+  ```cypher
+  MATCH (a:AuditEvent)
+  RETURN a.type, a.status, count(*)
+  ORDER BY a.type, a.status;
+  ```
+
+### I.6 Sauvegarder et vérifier qu'une sauvegarde est exploitable
+
+La procédure de sauvegarde/restauration complète (scripts
+`scripts/backup_neo4j.sh` / `scripts/restore_neo4j.sh`, syntaxe
+`neo4j-admin` correcte pour la version `2026.03`) est documentée en détail
+à la [section D](#d-sauvegarde-et-restauration-de-la-base-neo4j) — ce
+paragraphe se concentre sur la question « comment savoir qu'une sauvegarde
+est réellement utilisable, sans attendre un incident pour le découvrir ».
+
+Après une sauvegarde (`./scripts/backup_neo4j.sh`), vérifier qu'elle est
+exploitable **sans toucher à la base de production** :
+
+1. Vérifier que les fichiers `neo4j.dump` (et `system.dump`) existent et
+   ont une taille cohérente avec la base (ni vide, ni anormalement petite
+   par rapport à la sauvegarde précédente) :
+
+   ```bash
+   ls -la backups/neo4j_backup_<horodatage>/
+   ```
+
+2. `neo4j-admin` peut lire les métadonnées d'un dump sans le charger, via
+   `--info`, ce qui confirme que le fichier n'est pas corrompu :
+
+   ```bash
+   docker run --rm -v <chemin_absolu_du_dossier_de_sauvegarde>:/dumps \
+     neo4j:2026.03 \
+     neo4j-admin database load neo4j --from-path=/dumps --info
+   ```
+
+   Une sortie affichant le nombre de fichiers et la taille du dump (sans
+   message d'erreur) confirme que l'archive est lisible.
+
+3. Pour une vérification complète (recommandé avant une mise à jour Neo4j
+   ou après un premier changement de procédure), restaurer le dump sur un
+   **volume Docker jetable** distinct du volume de production, démarrer un
+   conteneur Neo4j temporaire dessus, et vérifier quelques comptages
+   (`MATCH (p:Personne) RETURN count(p)` par exemple) contre ce qui est
+   attendu, puis supprimer ce volume temporaire. C'est exactement la
+   méthode utilisée pour valider la correction des scripts de ce projet —
+   voir D.3.

@@ -1,8 +1,9 @@
 import json
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
+from auth_deps import require_admin
 from database import run_read, run_write
 from models import DecisionPayload
 from utils import empty_to_none, get_user
@@ -91,9 +92,10 @@ LIMIT $limit
 def decide_competence_request(
     event_id: str,
     payload: DecisionPayload,
-    x_user: str = Depends(get_user),
+    x_user: Optional[str] = Header(None),
 ):
-    manager = x_user.strip()
+    admin = require_admin(x_user)
+    manager = admin["email"]
     decision = payload.decision
     comment = payload.comment
 
@@ -174,7 +176,12 @@ def decide_competence_request(
 
         OPTIONAL MATCH (a)-[:AUDIT_CTX]->(c:Contexte)
 
-        MERGE (p:Personne {nom: a.personne})
+        FOREACH (_ IN CASE WHEN a.personne IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (:Personne {nom: a.personne})
+        )
+
+        WITH a, c
+        OPTIONAL MATCH (p:Personne {nom: a.personne})
 
         WITH a, p, c
         OPTIONAL MATCH (p)-[r:COMPETENCE]->(c)
@@ -190,7 +197,7 @@ def decide_competence_request(
         FOREACH (_ IN CASE
             WHEN a.type = "COMPETENCE_REQUEST"
               AND c IS NOT NULL
-              AND NOT (a.after_description CONTAINS "suppression")
+              AND NOT coalesce(a.demande_suppression, false)
             THEN [1] ELSE [] END |
 
             MERGE (p)-[r2:COMPETENCE]->(c)

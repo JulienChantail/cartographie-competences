@@ -14,12 +14,19 @@ __pycache__/
 # VS Code
 .vscode/
 
+# Claude Code (config locale à la machine, jamais partagée)
+.claude/
+
 # Logs
 *.log
 
 # Neo4j
 #*.tar.gz
 
+# Sauvegardes Neo4j locales (scripts/backup_neo4j.sh)
+backups/
+
 # Système
 .DS_Store
-Thumbs.dbbackend/.env
+Thumbs.db
+backend/.env

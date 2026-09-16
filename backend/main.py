@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
-from routers import auth, competences, contextes, graph, historique, personnes, questionnaire, ref, users
+from routers import auth, competences, contextes, graph, historique, personnes, questionnaire, ref, stats, users
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
@@ -53,6 +53,7 @@ app.include_router(graph.router)
 app.include_router(questionnaire.router)
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(stats.router)
 
 
 @app.get("/health")

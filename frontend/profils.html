@@ -52,63 +52,37 @@
       <div class="field" style="grid-column: 1 / -1;">
         <label for="personne-select">Personne</label>
         <select id="personne-select">
-          <option value="">-- Sélectionner une personne --</option>
+          <option value="">-- Sélectionner une personne (ou visualiser l'écosystème global) --</option>
         </select>
       </div>
     </div>
 
-    <div id="delete-person-area" style="display:none; margin-top:10px;">
-      <button id="delete-person-btn" type="button" class="btn btn-ghost btn-small" style="color:#c0392b; border-color:#c0392b;">
-        🗑️ Demander la suppression de ce profil
+    <div id="profile-actions" class="actions" style="display:none; margin-top:10px;">
+      <button id="edit-profile-btn" type="button" class="btn btn-primary">
+        Modifier le profil
+      </button>
+      <button id="delete-person-btn" type="button" class="btn btn-danger" style="margin-left:auto;">
+        🗑️ Supprimer le profil
       </button>
     </div>
 
     <div class="divider"></div>
-
   </section>
 
 
 <div class="divider"></div>
 
 
-<div id="network-container" style="display:none;">
-  <h3>Visualisation des compétences</h3>
-  <div id="network" style="height: 500px; border:1px solid #eee; border-radius:10px;"></div>
-</div>
+<section class="card">
+  <h3 id="network-title">Écosystème global des compétences</h3>
+  <p class="muted" id="network-hint" style="margin-top:-6px;">
+    Aucune personne sélectionnée : vue d'ensemble de toutes les personnes et technologies. Cliquez sur une
+    personne pour afficher son profil, ou sur une technologie pour mettre en évidence les personnes concernées.
+  </p>
+  <div id="network" style="height: 560px; border:1px solid var(--border); border-radius: var(--radius); background: var(--panel);"></div>
+  <div id="network-legend" class="muted" style="margin-top:10px; font-size:.85rem;"></div>
+</section>
 
-
-
-  <!-- Compétences -->
-  <section class="card">
-    <h2>Compétences</h2>
-    <p class="muted" style="margin-top:-6px;">
-      Les actions “Modifier” / “Supprimer” créent une demande soumise à validation.
-    </p>
-
-    <div class="table-wrap">
-      <table class="zebra">
-        <thead>
-          <tr>
-            <th>Techno</th>
-            <th>Domaine</th>
-            <th>Version</th>
-            <th>Niveau</th>
-            <th>Actif</th>
-            <th>Description</th>
-            <th>Dernière MAJ</th>
-            <th class="right">Actions</th>
-          </tr>
-        </thead>
-
-        <tbody id="competences-body">
-          <tr>
-            <td colspan="8">Sélectionnez une personne</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-  </section>
 </main>
 
 
@@ -122,26 +96,31 @@
 <script src="common.js"></script>
 <script>
 
-let pendingRequests = [];
-
+let currentPersonne = "";
+let currentNetwork = null;
+let currentNodesDataSet = null;
+let currentEdgesDataSet = null;
 
 /* ================================
    Helpers
 ================================ */
-function escapeHtml(value) {
-  // Petite protection basique si jamais des descriptions contiennent des caractères HTML
-  const div = document.createElement("div");
-  div.textContent = value ?? "";
-  return div.innerHTML;
-}
+function fetchJson(url, options = {}) {
+  const user = sessionStorage.getItem("currentUser");
 
-function formatDate(value) {
-  if (!value) return "-";
-  // value vient souvent sous forme string "2026-04-23T10:00:00Z" ou similaire
-  // On tente de parser, sinon on affiche brut
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return d.toLocaleString("fr-FR");
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      ...(user ? { "X-User": user } : {})
+    }
+  }).then(async res => {
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+    return res.json();
+  });
 }
 
 /* ================================
@@ -150,15 +129,11 @@ function formatDate(value) {
 
 async function loadPersonnes() {
   try {
-    // ✅ Appel API AUTHENTIFIÉ
     const personnes = await fetchJson(`${API_BASE_URL}/personnes`);
 
     const select = document.getElementById("personne-select");
-
-    // ✅ Réinitialiser les options sauf la première
     select.querySelectorAll("option:not(:first-child)").forEach(o => o.remove());
 
-    // ✅ Remplir la liste
     personnes.forEach(p => {
       const option = document.createElement("option");
       option.value = p.nom;
@@ -171,150 +146,6 @@ async function loadPersonnes() {
     await showAlert("Impossible de charger les personnes.");
   }
 }
-
-
-
-async function loadPendingRequests(personne) {
-  try {
-    pendingRequests = await fetchJson(
-      `${API_BASE_URL}/personnes/${encodeURIComponent(personne)}/demandes`
-    ) || [];
-  } catch (err) {
-    console.error("Erreur loadPendingRequests:", err);
-    pendingRequests = [];
-  }
-}
-
-
-function hasPendingRequest(techno, domaine, version) {
-  return pendingRequests.some(r =>
-    r.techno === techno &&
-    r.domaine === domaine &&
-    r.version === version
-  );
-}
-
-/* ================================
-   Suppression d'une compétence
-   (retour au 'false par défaut' => suppression relation COMPETENCE)
-================================ */
-
-
-async function deleteCompetence(nomPersonne, competence) {
-  
-  if (hasPendingRequest(
-    competence.techno,
-    competence.domaine,
-    competence.version,
-  )) {
-    await showAlert("Une demande est déjà en attente pour cette compétence.");
-    return;
-  }
-
-  const ok = await showConfirm(
-    `Demander la suppression de la compétence :\n\n` +
-    `${competence.techno} / ${competence.domaine} / ${competence.version}\n\n` +
-    `Cette action devra être validée par un manager.`,
-    { danger: true }
-  );
-  if (!ok) return;
-
-  try {
-    // ✅ Appel API AUTHENTIFIÉ
-    await fetchJson(
-      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          techno: competence.techno,
-          domaine: competence.domaine,
-          version: competence.version,
-
-          // ⛔ Suppression demandée → même niveau, suppression logique via demande
-          niveau: competence.niveau,
-          description: "suppression"
-        })
-      }
-    );
-
-    await showAlert("✅ Demande de suppression soumise à validation manager.");
-
-    await loadPendingRequests(nomPersonne);
-    await loadCompetences(nomPersonne);
-
-
-  } catch (error) {
-    console.error("Erreur demande suppression compétence :", error);
-    await showAlert("Impossible de soumettre la demande de suppression : " + error.message);
-  }
-}
-
-
-
-
-
-
-async function editCompetence(nomPersonne, competence) {
-
-if (hasPendingRequest(
-  competence.techno,
-  competence.domaine,
-  competence.version,
-)) {
-  await showAlert("Une demande est déjà en attente pour cette compétence.");
-  return;
-}
-
-
-  // 1️⃣ Demander le nouveau niveau
-  const newNiveau = await showPrompt(
-    `Modifier le niveau (1, 2 ou 3)\nNiveau actuel : ${competence.niveau}`,
-    competence.niveau
-  );
-
-  if (newNiveau === null) return; // Annulation
-
-  const niveauInt = parseInt(newNiveau, 10);
-  if (![1, 2, 3].includes(niveauInt)) {
-    await showAlert("Niveau invalide (1, 2 ou 3 seulement).");
-    return;
-  }
-
-  // 2️⃣ Demander la nouvelle description
-  const newDescription = await showPrompt(
-    "Modifier la description",
-    competence.description ?? ""
-  );
-
-  try {
-    // 3️⃣ Appel API AUTHENTIFIÉ (demande soumise à validation manager)
-    await fetchJson(
-      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          techno: competence.techno,
-          domaine: competence.domaine,
-          version: competence.version,
-          niveau: niveauInt,
-          description: newDescription
-        })
-      }
-    );
-
-    await showAlert("✅ Demande de modification soumise à validation manager.");
-
-    await loadPendingRequests(nomPersonne);
-    await loadCompetences(nomPersonne);
-
-
-  } catch (error) {
-    console.error("Erreur modification compétence :", error);
-    await showAlert("Impossible de modifier la compétence : " + error.message);
-  }
-}
-
-
 
 /* ================================
    Suppression d'un profil (demande)
@@ -348,292 +179,324 @@ async function requestPersonDeletion(nomPersonne) {
 }
 
 /* ================================
-   Chargement des compétences
+   Graphe — style visuel partagé
+   (utilisé pour la vue individuelle et la vue globale)
 ================================ */
 
-
-async function loadCompetences(nomPersonne) {
-
-  const tbody = document.getElementById("competences-body");
-  tbody.innerHTML = "";
-
-  if (!nomPersonne) {
-    tbody.innerHTML = `<tr><td colspan="8">Sélectionnez une personne</td></tr>`;
-    return;
+// Teinte déterministe par catégorie de techno (aucune liste codée en dur :
+// robuste à n'importe quelle catégorie présente en base).
+function hashHue(str) {
+  let hash = 0;
+  for (let i = 0; i < (str || "").length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
   }
-
-  // Placeholder loading
-  tbody.innerHTML = `<tr><td colspan="8">Chargement…</td></tr>`;
-
-  try {
-    // ✅ Appel API AUTHENTIFIÉ
-    const competences = await fetchJson(
-      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences`
-    );
-
-    tbody.innerHTML = "";
-
-    if (!competences || competences.length === 0) {
-      tbody.innerHTML =
-        `<tr><td colspan="8">Aucune compétence trouvée (par défaut : non assigné)</td></tr>`;
-      return;
-    }
-
-    competences.forEach(c => {
-      const row = document.createElement("tr");
-
-      const actif = (c.actif !== false); // true par défaut
-      const actifLabel = actif ? "Oui" : "⏳ En attente";
-
-      
-      const pending = hasPendingRequest(c.techno, c.domaine, c.version);
-
-      const pendingBadge = pending
-        ? `<span class="pill" style="background:#fff3cd; color:#856404;">⏳ En attente</span>`
-        : "";
-
-
-      row.innerHTML = `
-        <td>${escapeHtml(c.techno)} ${pendingBadge}</td>
-        <td>${escapeHtml(c.domaine)}</td>
-        <td>${escapeHtml(c.version)}</td>
-        <td>${escapeHtml(String(c.niveau ?? "-"))}</td>
-        <td>${escapeHtml(actifLabel)}</td>
-        <td>${escapeHtml(c.description ?? "")}</td>
-        <td>${escapeHtml(formatDate(c.updatedAt))}</td>
-        <td>
-          <button class="btn-edit" type="button">Modifier</button>
-          <button class="btn-delete" type="button">Supprimer</button>
-        </td>
-      `;
-
-      const editBtn = row.querySelector(".btn-edit");
-      const deleteBtn = row.querySelector(".btn-delete");
-
-      // ✅ Empêcher une nouvelle demande si une demande est déjà en attente
-      
-      if (!actif || pending) {
-        editBtn.disabled = true;
-        deleteBtn.disabled = true;
-
-        editBtn.title = "Demande déjà en attente";
-          deleteBtn.title = "Demande déjà en attente";
-      } else {
-        editBtn.addEventListener("click", () =>
-          editCompetence(nomPersonne, c)
-        );
-
-        deleteBtn.addEventListener("click", () =>
-          deleteCompetence(nomPersonne, c)
-        );
-      }
-
-
-
-      tbody.appendChild(row);
-    });
-
-  } catch (error) {
-    console.error("Erreur chargement competences :", error);
-    tbody.innerHTML =
-      `<tr><td colspan="8">Erreur de chargement (${escapeHtml(error.message)})</td></tr>`;
-  }
+  return Math.abs(hash) % 360;
 }
 
+// rarity ∈ [0,1] : 0 = techno rare (peu de personnes), 1 = très répandue.
+// Rare → couleur claire (signal "compétence à risque"), répandue → couleur soutenue.
+function colorForTechno(category, rarity) {
+  const hue = hashHue(category || "Autre");
+  const lightness = Math.round(78 - rarity * 33);
+  return {
+    background: `hsl(${hue}, 60%, ${lightness}%)`,
+    border: `hsl(${hue}, 60%, ${Math.max(lightness - 20, 15)}%)`
+  };
+}
 
+const NIVEAU_EDGE_STYLE = {
+  1: { color: "#93c5fd", width: 2 },
+  2: { color: "#3b82f6", width: 3 },
+  3: { color: "#1e3a8a", width: 5 }
+};
 
+function maxNiveau(details) {
+  return (details || []).reduce((max, d) => Math.max(max, d.niveau || 0), 0);
+}
 
+function renderNetworkLegend() {
+  document.getElementById("network-legend").innerHTML = `
+    <strong>Lecture du graphe</strong> —
+    taille du nœud technologie : nombre de personnes qui la maîtrisent ·
+    teinte : catégorie de technologie ·
+    clarté : rareté (plus clair = plus rare, donc plus à risque) ·
+    épaisseur / couleur du lien : niveau de compétence (clair = N1, foncé = N3).
+  `;
+}
 
-function fetchJson(url, options = {}) {
-  const user = sessionStorage.getItem("currentUser");
+/**
+ * Construit {nodes, edges} stylés pour vis-network à partir de la réponse
+ * de l'API (/graph ou /graph/global), et calcule la popularité/rareté de
+ * chaque technologie à partir des arêtes reçues.
+ */
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
 
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      "Content-Type": "application/json",
-      ...(user ? { "X-User": user } : {})
-    }
-  }).then(async res => {
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || res.statusText);
-    }
-    return res.json();
+function styleGraphData(data, centralPersonne) {
+  const primary = cssVar("--primary", "#3b82f6");
+  const primary2 = cssVar("--primary-2", "#2563eb");
+
+  const edgesByTechnoNode = new Map();
+  data.edges.forEach(e => {
+    if (!edgesByTechnoNode.has(e.to)) edgesByTechnoNode.set(e.to, []);
+    edgesByTechnoNode.get(e.to).push(e);
   });
-}
 
+  const maxPopularity = Math.max(1, ...Array.from(edgesByTechnoNode.values()).map(l => l.length));
 
-
-
-
-
-
-async function loadGraph(personne) {
-
-  const containerWrapper = document.getElementById("network-container");
-  const container = document.getElementById("network");
-
-  // ✅ cacher si aucune personne
-  if (!personne) {
-    containerWrapper.style.display = "none";
-    container.innerHTML = "";
-    return;
-  }
-
-  // ✅ afficher
-  containerWrapper.style.display = "block";
-
-  try {
-    const data = await fetchJson(
-      `${API_BASE_URL}/graph?personne=${encodeURIComponent(personne)}`
-    );
-
-    // ✅ STYLE NODES (Neo4j-like)
-    data.nodes = data.nodes.map(n => {
-
-      // 🎯 Personne centrale
-      if (n.label === personne) {
-        return {
-          ...n,
-          color: {
-            background: "#FFA500",
-            border: "#cc8400"
-          },
-          size: 30,
-          font: { size: 14 }
-        };
-      }
-
-      // ✅ Techno
+  const nodes = data.nodes.map(n => {
+    if (n.type === "personne") {
+      const isCentral = n.label === centralPersonne;
       return {
         ...n,
-        color: {
-          background: "#4CAF50",
-          border: "#2e7d32"
-        },
-        size: 18
+        shape: "dot",
+        color: { background: primary, border: primary2 },
+        size: isCentral ? 32 : 22,
+        font: { size: isCentral ? 15 : 12, color: "#0f172a" }
       };
-    });
+    }
 
-    const nodes = new vis.DataSet(data.nodes);
-    const edges = new vis.DataSet(data.edges);
+    const popularity = (edgesByTechnoNode.get(n.id) || []).length;
+    const rarity = popularity / maxPopularity;
+    const colors = colorForTechno(n.category, rarity);
 
-    const options = {
-
-      nodes: {
-        shape: "dot"
-      },
-
-      edges: {
-        color: "#bbb",
-        smooth: true,
-        arrows: "to"
-      },
-
-      physics: {
-        stabilization: false,
-        barnesHut: {
-          gravitationalConstant: -3000,
-          springLength: 120
-        }
-      },
-
-      interaction: {
-        hover: true
-      }
+    return {
+      ...n,
+      shape: "dot",
+      color: colors,
+      size: 14 + rarity * 18,
+      font: { size: 11 }
     };
+  });
 
-    const network = new vis.Network(container, { nodes, edges }, options);
+  const edges = data.edges.map(e => {
+    const niveau = maxNiveau(e.details);
+    const style = NIVEAU_EDGE_STYLE[niveau] || { color: "#bbb", width: 2 };
+    return {
+      ...e,
+      color: style.color,
+      width: style.width,
+      smooth: true
+    };
+  });
 
-    // ✅ CLICK INTERACTION CORRIGÉE
-    network.on("click", async function (params) {
+  return { nodes, edges };
+}
 
-      // ✅ clic sur une relation (edge)
+const NETWORK_OPTIONS = {
+  nodes: { shape: "dot" },
+  edges: { arrows: "to" },
+  physics: {
+    stabilization: { iterations: 120 },
+    barnesHut: { gravitationalConstant: -3000, springLength: 120 }
+  },
+  interaction: { hover: true }
+};
+
+// Dans le graphe global, chaque nœud (personne ou techno) est relié à
+// beaucoup d'autres nœuds : une seule arête ne représente qu'UNE paire
+// personne/techno, donc afficher le détail d'une arête cliquée au hasard
+// (ce qui arrive facilement dans un graphe dense) n'est pas représentatif
+// du nœud visé. En vue globale, le clic est donc traité au niveau du
+// nœud : liste complète des compétences d'une personne, ou liste complète
+// des personnes (+ niveau) pour une technologie.
+function personCompetencesMessage(nodeId, nodes, edges) {
+  const person = nodes.get(nodeId);
+  const lines = [];
+  edges.get().forEach(e => {
+    if (e.from !== nodeId) return;
+    const techno = nodes.get(e.to).label;
+    (e.details || []).forEach(d => lines.push(`${techno} — ${d.domaine} : N${d.niveau}`));
+  });
+  lines.sort();
+
+  let message = `🧑 ${person.label}\n\nCompétences :\n\n`;
+  message += lines.length ? lines.join("\n") : "Aucune compétence active.";
+  return message;
+}
+
+function technoPeopleMessage(nodeId, nodes, edges) {
+  const techno = nodes.get(nodeId);
+  const lines = [];
+  edges.get().forEach(e => {
+    if (e.to !== nodeId) return;
+    const personne = nodes.get(e.from).label;
+    (e.details || []).forEach(d => lines.push(`${personne} — ${d.domaine} : N${d.niveau}`));
+  });
+  lines.sort();
+
+  let message = `💾 ${techno.label}\n\nPersonnes maîtrisant cette technologie :\n\n`;
+  message += lines.length ? lines.join("\n") : "Aucune personne active.";
+  return message;
+}
+
+function attachNetworkClickHandlers(network, nodes, edges, { isGlobal }) {
+  network.on("click", async function (params) {
+
+    if (!isGlobal) {
+      // Vue individuelle : une arête = une paire personne/techno univoque,
+      // le détail par arête reste pertinent ici.
       if (params.edges.length > 0) {
-
-        const edgeId = params.edges[0];
-        const edgeData = edges.get(edgeId);
-
+        const edgeData = edges.get(params.edges[0]);
         let message = "📊 Détail compétence\n\n";
-        message += `Techno: ${nodes.get(edgeData.to).label}\n\n`;
-
-        // ✅ afficher tous les domaines liés
+        message += `Technologie : ${nodes.get(edgeData.to).label}\n\n`;
         if (edgeData.details && edgeData.details.length > 0) {
-          edgeData.details.forEach(d => {
-            message += `${d.domaine} : N${d.niveau}\n`;
-          });
+          edgeData.details.forEach(d => { message += `${d.domaine} : N${d.niveau}\n`; });
         } else {
           message += "Aucune information disponible";
         }
-
         await showAlert(message);
       }
+      return;
+    }
 
-      // ✅ clic sur un noeud (optionnel debug)
-      if (params.nodes.length > 0) {
+    // Vue globale : on résout toujours vers un nœud (personne ou techno),
+    // y compris si le clic a techniquement touché une arête proche.
+    let nodeId = params.nodes[0];
+    if (nodeId === undefined && params.edges.length > 0) {
+      const edgeData = edges.get(params.edges[0]);
+      nodeId = edgeData.to; // par défaut, on retombe sur le nœud technologie de l'arête
+    }
+    if (nodeId === undefined) return;
 
-        const nodeId = params.nodes[0];
-        const nodeData = nodes.get(nodeId);
+    const nodeData = nodes.get(nodeId);
 
-        console.log("Node cliqué :", nodeData.label);
-      }
+    if (nodeData.type === "personne") {
+      await showAlert(personCompetencesMessage(nodeId, nodes, edges));
+      selectPersonne(nodeData.label);
+      return;
+    }
 
-    });
+    // Techno : liste des personnes + mise en évidence visuelle des nœuds reliés
+    const connectedIds = new Set(network.getConnectedNodes(nodeId));
+    connectedIds.add(nodeId);
 
+    nodes.update(nodes.get().map(n => ({
+      id: n.id,
+      opacity: connectedIds.has(n.id) ? 1 : 0.15
+    })));
+    edges.update(edges.get().map(e => ({
+      id: e.id,
+      hidden: !(e.from === nodeId || e.to === nodeId)
+    })));
+
+    await showAlert(technoPeopleMessage(nodeId, nodes, edges));
+  });
+
+  // Double-clic dans le vide : réinitialise la mise en évidence
+  network.on("doubleClick", function (params) {
+    if (params.nodes.length > 0 || params.edges.length > 0) return;
+    nodes.update(nodes.get().map(n => ({ id: n.id, opacity: 1 })));
+    edges.update(edges.get().map(e => ({ id: e.id, hidden: false })));
+  });
+}
+
+async function loadGraph(personne) {
+  const container = document.getElementById("network");
+  document.getElementById("network-title").textContent = `Visualisation des compétences — ${personne}`;
+  document.getElementById("network-hint").textContent =
+    "Cliquez sur une arête pour voir le détail domaine/niveau.";
+
+  try {
+    const data = await fetchJson(`${API_BASE_URL}/graph?personne=${encodeURIComponent(personne)}`);
+    const styled = styleGraphData(data, personne);
+
+    currentNodesDataSet = new vis.DataSet(styled.nodes);
+    currentEdgesDataSet = new vis.DataSet(styled.edges);
+
+    currentNetwork = new vis.Network(
+      container,
+      { nodes: currentNodesDataSet, edges: currentEdgesDataSet },
+      NETWORK_OPTIONS
+    );
+    attachNetworkClickHandlers(currentNetwork, currentNodesDataSet, currentEdgesDataSet, { isGlobal: false });
+    renderNetworkLegend();
   } catch (err) {
     console.error("Erreur chargement graph:", err);
+    container.innerHTML = "<p class='muted' style='padding:16px;'>Impossible de charger le graphe.</p>";
   }
 }
 
+async function loadGraphGlobal() {
+  const container = document.getElementById("network");
+  document.getElementById("network-title").textContent = "Écosystème global des compétences";
+  document.getElementById("network-hint").textContent =
+    "Aucune personne sélectionnée : vue d'ensemble de toutes les personnes et technologies. Cliquez sur une " +
+    "personne pour voir la liste de ses compétences (puis afficher son profil), ou sur une technologie pour " +
+    "voir la liste des personnes qui la maîtrisent et leur niveau.";
 
+  try {
+    const data = await fetchJson(`${API_BASE_URL}/graph/global`);
+    const styled = styleGraphData(data, null);
 
+    currentNodesDataSet = new vis.DataSet(styled.nodes);
+    currentEdgesDataSet = new vis.DataSet(styled.edges);
 
+    currentNetwork = new vis.Network(
+      container,
+      { nodes: currentNodesDataSet, edges: currentEdgesDataSet },
+      NETWORK_OPTIONS
+    );
+    attachNetworkClickHandlers(currentNetwork, currentNodesDataSet, currentEdgesDataSet, { isGlobal: true });
+    renderNetworkLegend();
+  } catch (err) {
+    console.error("Erreur chargement graph global:", err);
+    container.innerHTML = "<p class='muted' style='padding:16px;'>Impossible de charger le graphe.</p>";
+  }
+}
 
+/* ================================
+   Sélection d'une personne
+   (appelée par le <select> ET par un clic sur un nœud du graphe global)
+================================ */
 
+async function selectPersonne(nom) {
+  currentPersonne = nom || "";
 
+  const select = document.getElementById("personne-select");
+  if (select.value !== currentPersonne) select.value = currentPersonne;
+
+  const actions = document.getElementById("profile-actions");
+  actions.style.display = currentPersonne ? "flex" : "none";
+
+  if (currentPersonne) {
+    await loadGraph(currentPersonne);
+  } else {
+    await loadGraphGlobal();
+  }
+}
 
 /* ================================
    Événements
 ================================ */
 
-document.getElementById("personne-select").addEventListener("change", async (e) => {
-  const personne = e.target.value;
+document.getElementById("personne-select").addEventListener("change", (e) => {
+  selectPersonne(e.target.value);
+});
 
-  const deleteArea = document.getElementById("delete-person-area");
-  deleteArea.style.display = personne ? "block" : "none";
-
-  if (!personne) {
-    loadCompetences("");
-    return;
+document.getElementById("edit-profile-btn").addEventListener("click", () => {
+  if (currentPersonne) {
+    window.location.href = `profil_detail.html?personne=${encodeURIComponent(currentPersonne)}`;
   }
-
-  await loadPendingRequests(personne);   // ✅ IMPORTANT
-  await loadCompetences(personne);
-  await loadGraph(personne);
 });
 
 document.getElementById("delete-person-btn").addEventListener("click", () => {
-  const personne = document.getElementById("personne-select").value;
-  if (personne) requestPersonDeletion(personne);
+  if (currentPersonne) requestPersonDeletion(currentPersonne);
 });
-
 
 /* ================================
    Initialisation
 ================================ */
 
-// ✅ Actions : changer d'utilisateur / déconnexion
 const switchBtn = document.getElementById("switch-user-btn");
-
 if (switchBtn) {
-  switchBtn.addEventListener("click", () => {
-    window.location.href = "login.html";
-  });
+  switchBtn.addEventListener("click", () => { window.location.href = "login.html"; });
 }
 
 const logoutBtn = document.getElementById("logout-btn");
-
 if (logoutBtn) {
   logoutBtn.addEventListener("click", () => {
     sessionStorage.removeItem("currentUser");
@@ -643,6 +506,7 @@ if (logoutBtn) {
 }
 
 loadPersonnes();
+loadGraphGlobal();
 </script>
 
 </body>

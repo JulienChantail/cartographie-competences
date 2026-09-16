@@ -1,0 +1,390 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="color-scheme" content="light">
+  <title>Détail profil - Cartographie DBA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+
+<header>
+  <div class="topbar">
+    <h1>Détail du profil</h1>
+
+    <div class="user-area">
+      <span id="user-badge" class="pill"></span>
+
+      <button id="switch-user-btn" type="button" class="btn btn-secondary btn-small">
+        Changer d'utilisateur
+      </button>
+
+      <button id="logout-btn" type="button" class="btn btn-ghost btn-small">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+  <nav>
+    <a href="index.html">Accueil</a>
+    <a href="profils.html" class="active">Profils</a>
+    <a href="recherche.html">Recherche</a>
+    <a href="gestion.html">Gestion</a>
+    <a href="utilisateurs.html" class="admin-only">Utilisateurs</a>
+    <a href="validation.html" class="admin-only">Validation</a>
+    <a href="synthese.html">Synthèse</a>
+    <a href="historique.html">Historique</a>
+    <a href="questionnaire.html">Questionnaire</a>
+  </nav>
+
+</header>
+
+
+<main>
+  <section class="card">
+    <a href="profils.html" class="btn btn-ghost btn-sm">← Retour au profil</a>
+    <h2 id="page-title" style="margin-top:10px;">Compétences</h2>
+    <p class="muted" style="margin-top:-6px;">
+      Les actions “Modifier” / “Supprimer” créent une demande soumise à validation par un manager. Ceci n'affecte
+      pas immédiatement les données réelles.
+    </p>
+  </section>
+
+  <!-- Compétences -->
+  <section class="card">
+    <h3>Compétences actuelles</h3>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Techno</th>
+            <th>Domaine</th>
+            <th>Version</th>
+            <th>Niveau</th>
+            <th>Actif</th>
+            <th>Description</th>
+            <th>Dernière MAJ</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="competences-body">
+          <tr>
+            <td colspan="8">Chargement…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Demandes en attente -->
+  <section class="card">
+    <h3>Demandes en attente</h3>
+    <p class="muted" style="margin-top:-6px;">
+      Demandes soumises pour cette personne, pas encore traitées par un manager (voir la page Historique pour
+      le détail complet des décisions passées).
+    </p>
+
+    <div class="table-wrap">
+      <table class="zebra">
+        <thead>
+          <tr>
+            <th>Techno</th>
+            <th>Domaine</th>
+            <th>Version</th>
+            <th>Niveau demandé</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+
+        <tbody id="pending-body">
+          <tr>
+            <td colspan="5">Chargement…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+
+
+<footer>
+  <p>Cartographie des compétences DBA</p>
+</footer>
+
+<script src="common.js"></script>
+<script>
+
+let nomPersonne = "";
+let pendingRequests = [];
+
+/* ================================
+   Helpers
+================================ */
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString("fr-FR");
+}
+
+function fetchJson(url, options = {}) {
+  const user = sessionStorage.getItem("currentUser");
+
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      ...(user ? { "X-User": user } : {})
+    }
+  }).then(async res => {
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+    return res.json();
+  });
+}
+
+/* ================================
+   Demandes en attente
+================================ */
+
+async function loadPendingRequests() {
+  const tbody = document.getElementById("pending-body");
+  try {
+    pendingRequests = await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/demandes`
+    ) || [];
+
+    if (pendingRequests.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5">Aucune demande en attente.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = "";
+    pendingRequests.forEach(r => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${escapeHtml(r.techno)}</td>
+        <td>${escapeHtml(r.domaine)}</td>
+        <td>${escapeHtml(r.version)}</td>
+        <td>${escapeHtml(String(r.niveau ?? "-"))}</td>
+        <td>${escapeHtml(r.description ?? "")}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (err) {
+    console.error("Erreur loadPendingRequests:", err);
+    pendingRequests = [];
+    tbody.innerHTML = `<tr><td colspan="5">Erreur de chargement.</td></tr>`;
+  }
+}
+
+function hasPendingRequest(techno, domaine, version) {
+  return pendingRequests.some(r =>
+    r.techno === techno && r.domaine === domaine && r.version === version
+  );
+}
+
+/* ================================
+   Suppression d'une compétence
+   (demande de suppression via le champ dédié demande_suppression,
+   indépendant du texte libre de la description)
+================================ */
+
+async function deleteCompetence(competence) {
+  if (hasPendingRequest(competence.techno, competence.domaine, competence.version)) {
+    await showAlert("Une demande est déjà en attente pour cette compétence.");
+    return;
+  }
+
+  const ok = await showConfirm(
+    `Demander la suppression de la compétence :\n\n` +
+    `${competence.techno} / ${competence.domaine} / ${competence.version}\n\n` +
+    `Cette action devra être validée par un manager.`,
+    { danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          techno: competence.techno,
+          domaine: competence.domaine,
+          version: competence.version,
+          niveau: competence.niveau,
+          description: "Suppression demandée",
+          demande_suppression: true
+        })
+      }
+    );
+
+    await showAlert("✅ Demande de suppression soumise à validation manager.");
+    await loadPendingRequests();
+    await loadCompetences();
+
+  } catch (error) {
+    console.error("Erreur demande suppression compétence :", error);
+    await showAlert("Impossible de soumettre la demande de suppression : " + error.message);
+  }
+}
+
+async function editCompetence(competence) {
+  if (hasPendingRequest(competence.techno, competence.domaine, competence.version)) {
+    await showAlert("Une demande est déjà en attente pour cette compétence.");
+    return;
+  }
+
+  const newNiveau = await showPrompt(
+    `Modifier le niveau (1, 2 ou 3)\nNiveau actuel : ${competence.niveau}`,
+    competence.niveau
+  );
+  if (newNiveau === null) return;
+
+  const niveauInt = parseInt(newNiveau, 10);
+  if (![1, 2, 3].includes(niveauInt)) {
+    await showAlert("Niveau invalide (1, 2 ou 3 seulement).");
+    return;
+  }
+
+  const newDescription = await showPrompt(
+    "Modifier la description",
+    competence.description ?? ""
+  );
+
+  try {
+    await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences/demandes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          techno: competence.techno,
+          domaine: competence.domaine,
+          version: competence.version,
+          niveau: niveauInt,
+          description: newDescription,
+          demande_suppression: false
+        })
+      }
+    );
+
+    await showAlert("✅ Demande de modification soumise à validation manager.");
+    await loadPendingRequests();
+    await loadCompetences();
+
+  } catch (error) {
+    console.error("Erreur modification compétence :", error);
+    await showAlert("Impossible de modifier la compétence : " + error.message);
+  }
+}
+
+/* ================================
+   Chargement des compétences
+================================ */
+
+async function loadCompetences() {
+  const tbody = document.getElementById("competences-body");
+  tbody.innerHTML = `<tr><td colspan="8">Chargement…</td></tr>`;
+
+  try {
+    const competences = await fetchJson(
+      `${API_BASE_URL}/personnes/${encodeURIComponent(nomPersonne)}/competences`
+    );
+
+    tbody.innerHTML = "";
+
+    if (!competences || competences.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8">Aucune compétence trouvée.</td></tr>`;
+      return;
+    }
+
+    competences.forEach(c => {
+      const row = document.createElement("tr");
+
+      const actif = (c.actif !== false);
+      const actifLabel = actif ? "Oui" : "⏳ En attente";
+      const pending = hasPendingRequest(c.techno, c.domaine, c.version);
+      const pendingBadge = pending ? `<span class="pill proposed">⏳ En attente</span>` : "";
+
+      row.innerHTML = `
+        <td>${escapeHtml(c.techno)} ${pendingBadge}</td>
+        <td>${escapeHtml(c.domaine)}</td>
+        <td>${escapeHtml(c.version)}</td>
+        <td>${escapeHtml(String(c.niveau ?? "-"))}</td>
+        <td>${escapeHtml(actifLabel)}</td>
+        <td>${escapeHtml(c.description ?? "")}</td>
+        <td>${escapeHtml(formatDate(c.updatedAt))}</td>
+        <td>
+          <button class="btn-edit" type="button">Modifier</button>
+          <button class="btn-delete" type="button">Supprimer</button>
+        </td>
+      `;
+
+      const editBtn = row.querySelector(".btn-edit");
+      const deleteBtn = row.querySelector(".btn-delete");
+
+      if (!actif || pending) {
+        editBtn.disabled = true;
+        deleteBtn.disabled = true;
+        editBtn.title = "Demande déjà en attente";
+        deleteBtn.title = "Demande déjà en attente";
+      } else {
+        editBtn.addEventListener("click", () => editCompetence(c));
+        deleteBtn.addEventListener("click", () => deleteCompetence(c));
+      }
+
+      tbody.appendChild(row);
+    });
+
+  } catch (error) {
+    console.error("Erreur chargement competences :", error);
+    tbody.innerHTML = `<tr><td colspan="8">Erreur de chargement (${escapeHtml(error.message)})</td></tr>`;
+  }
+}
+
+/* ================================
+   Initialisation
+================================ */
+
+const switchBtn = document.getElementById("switch-user-btn");
+if (switchBtn) {
+  switchBtn.addEventListener("click", () => { window.location.href = "login.html"; });
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentRole");
+    window.location.href = "login.html";
+  });
+}
+
+const params = new URLSearchParams(window.location.search);
+nomPersonne = params.get("personne") || "";
+
+if (!nomPersonne) {
+  window.location.href = "profils.html";
+} else {
+  document.getElementById("page-title").textContent = `Compétences — ${nomPersonne}`;
+  loadPendingRequests().then(loadCompetences);
+}
+</script>
+
+</body>
+</html>

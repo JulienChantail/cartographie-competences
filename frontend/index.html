@@ -63,6 +63,44 @@
     </div>
   </section>
 
+  <!-- INDICATEURS CLÉS -->
+  <section class="card">
+    <h2>Indicateurs clés</h2>
+    <div id="kpi-info" class="muted" style="margin-bottom:10px;">Chargement…</div>
+
+    <div class="grid-3">
+      <div class="kpi">
+        <h3>Oracle — niveau 3</h3>
+        <div class="value" id="kpi-oracle-n3">-</div>
+        <div class="sub">Personnes expertes actives</div>
+      </div>
+
+      <div class="kpi">
+        <h3>PostgreSQL — niveau 3</h3>
+        <div class="value" id="kpi-postgresql-n3">-</div>
+        <div class="sub">Personnes expertes actives</div>
+      </div>
+
+      <div class="kpi">
+        <h3>MySQL — niveau 3</h3>
+        <div class="value" id="kpi-mysql-n3">-</div>
+        <div class="sub">Personnes expertes actives</div>
+      </div>
+
+      <div class="kpi">
+        <h3>Personnes</h3>
+        <div class="value" id="kpi-total-personnes">-</div>
+        <div class="sub">Membres cartographiés</div>
+      </div>
+
+      <div class="kpi">
+        <h3>Technologies</h3>
+        <div class="value" id="kpi-total-technos">-</div>
+        <div class="sub">Référencées dans le catalogue</div>
+      </div>
+    </div>
+  </section>
+
   <!-- CARTES D’ACCÈS RAPIDE -->
   <section class="card">
     <h2>Accès rapide</h2>
@@ -101,6 +139,48 @@
 
 <script src="common.js"></script>
 <script>
+
+// ✅ Indicateurs clés
+function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      "X-User": currentUser
+    }
+  }).then(async res => {
+    const text = await res.text().catch(() => "");
+    if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+    return text ? JSON.parse(text) : null;
+  });
+}
+
+async function loadKpis() {
+  const info = document.getElementById("kpi-info");
+  try {
+    const [niveau3, personnes, technos] = await Promise.all([
+      fetchJson(`${API_BASE_URL}/stats/niveau3-par-categorie?category=Oracle&category=PostgreSQL&category=MySQL`),
+      fetchJson(`${API_BASE_URL}/personnes`),
+      fetchJson(`${API_BASE_URL}/ref/technos`)
+    ]);
+
+    const parCategorie = {};
+    (niveau3 || []).forEach(row => { parCategorie[row.category] = row.personnes; });
+
+    document.getElementById("kpi-oracle-n3").textContent = parCategorie["Oracle"] ?? 0;
+    document.getElementById("kpi-postgresql-n3").textContent = parCategorie["PostgreSQL"] ?? 0;
+    document.getElementById("kpi-mysql-n3").textContent = parCategorie["MySQL"] ?? 0;
+    document.getElementById("kpi-total-personnes").textContent = (personnes || []).length;
+    document.getElementById("kpi-total-technos").textContent = (technos || []).length;
+
+    info.textContent = "Calculés en temps réel depuis la base.";
+  } catch (err) {
+    info.textContent = "Impossible de charger les indicateurs.";
+  }
+}
+
+loadKpis();
 
 // ✅ Actions : changer d'utilisateur / déconnexion
 const switchBtn = document.getElementById("switch-user-btn");

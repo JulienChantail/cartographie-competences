@@ -250,7 +250,8 @@ document.getElementById("submit-request-btn").onclick = async () => {
           domaine: domaine,
           version: version,
           niveau: parseInt(document.getElementById("niveau-select").value),
-          description: document.getElementById("desc-input").value
+          description: document.getElementById("desc-input").value,
+          demande_suppression: false
         })
       }
     );

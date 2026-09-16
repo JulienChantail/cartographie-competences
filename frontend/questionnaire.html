@@ -60,7 +60,8 @@
     .questionnaire-table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 760px;
+      table-layout: fixed;
+      min-width: 480px;
     }
 
     .questionnaire-table th,
@@ -69,12 +70,13 @@
       border-bottom: 1px solid var(--border);
       text-align: center;
       vertical-align: middle;
+      width: 16.25%;
     }
 
     .questionnaire-table th:first-child,
     .questionnaire-table td:first-child {
       text-align: left;
-      width: 240px;
+      width: 35%;
       font-weight: 600;
     }
 
@@ -330,6 +332,15 @@ const QUESTIONNAIRE = [
     technos: [
       "Cassandra Cluster",
       "Cassandra Exploitation"
+    ]
+  },
+  {
+    category: "Elasticsearch",
+    type: "SGBD",
+    technos: [
+      "Elasticsearch Single-node",
+      "Elasticsearch Cluster",
+      "Elasticsearch Ingest Node"
     ]
   },
   {

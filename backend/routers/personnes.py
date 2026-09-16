@@ -97,7 +97,8 @@ def create_competence_request(
 
         after_niveau: $niveau,
         after_actif: false,
-        after_description: $description
+        after_description: $description,
+        demande_suppression: $demande_suppression
     })
 
     MERGE (a)-[:AUDIT_CTX]->(c)
@@ -117,7 +118,8 @@ def create_competence_request(
         "version": payload.version,
         "cle": cle,
         "niveau": payload.niveau,
-        "description": payload.description
+        "description": payload.description,
+        "demande_suppression": payload.demande_suppression
     })
 
     if not rows:

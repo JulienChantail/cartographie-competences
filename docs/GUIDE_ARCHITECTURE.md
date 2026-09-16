@@ -67,10 +67,20 @@ Autrement dit :
   `http://backend:8000/`.
 
 C'est pourquoi le `proxy` sert avant tout de **point d'entrée unique pour un
-déploiement serveur** (un seul port 80 exposé, une seule URL à retenir),
-alors qu'en local les deux services `backend` et `neo4j` restent aussi
-directement accessibles sur leurs ports respectifs pour faciliter le
-développement et le débogage.
+déploiement serveur** (un seul port exposé côté conteneur `proxy` — port
+`80` en interne —, une seule URL à retenir), alors qu'en local les deux
+services `backend` et `neo4j` restent aussi directement accessibles sur
+leurs ports respectifs pour faciliter le développement et le débogage.
+
+> **Port hôte réellement publié par `proxy`** : `docker-compose.yml`
+> mappe actuellement ce port 80 interne sur le port **`8088`** de la
+> machine hôte (`"8088:80"`), pas sur le port 80 standard — c'est donc
+> `http://localhost:8088` (et non `http://localhost`) qu'il faut utiliser
+> pour accéder à l'application en local. Vérifier `docker compose ps` ou
+> le fichier `docker-compose.yml` en cas de doute, ce mapping pouvant
+> évoluer. Ce point n'affecte que le port **hôte** ; les noms de service
+> internes (`backend:8000`, `frontend:80`) et le fonctionnement du proxy
+> lui-même sont inchangés.
 
 ### 1.2 Les 4 services
 
@@ -79,7 +89,7 @@ développement et le débogage.
 | `neo4j` | Neo4j 2026.03 | Stockage de toutes les données (personnes, compétences, référentiel, comptes, historique) | Non (image officielle) |
 | `backend` | Python 3.12 / FastAPI 0.115 | API REST : toute la logique métier | Oui (`backend/Dockerfile`) |
 | `frontend` | Nginx 1.27-alpine | Sert les pages HTML/CSS/JS statiques | Oui (`frontend/Dockerfile`) |
-| `proxy` | Nginx 1.27-alpine | Reverse proxy, point d'entrée unique (port 80) | Oui (`proxy/Dockerfile`) |
+| `proxy` | Nginx 1.27-alpine | Reverse proxy, point d'entrée unique (port 80 interne, publié sur `8088` côté hôte — voir remarque ci-dessus) | Oui (`proxy/Dockerfile`) |
 
 ### 1.3 Absence de couche de build front
 
@@ -187,7 +197,8 @@ Projet_cartographie_competences/
 │       ├── contextes.py                              # /contextes
 │       ├── competences.py                             # /competences/contexte
 │       ├── historique.py                               # /historique — cœur du workflow de validation
-│       ├── graph.py                                     # /graph — données pour la visualisation vis-network
+│       ├── graph.py                                     # /graph, /graph/global — données pour vis-network
+│       ├── stats.py                                      # /stats/* — indicateurs clés (page d'accueil)
 │       └── questionnaire.py                              # /questionnaire
 │
 ├── frontend/                       # pages HTML statiques
@@ -196,8 +207,9 @@ Projet_cartographie_competences/
 │   ├── common.js                       # session, garde de connexion, dialogues stylées — partagé par toutes les pages sauf login.html
 │   ├── style.css                        # feuille de style unique
 │   ├── login.html                        # connexion
-│   ├── index.html                         # accueil
-│   ├── profils.html                        # consultation compétences + graphe
+│   ├── index.html                         # accueil (indicateurs clés)
+│   ├── profils.html                        # sélection de personne + graphe (individuel ou global)
+│   ├── profil_detail.html                   # édition du profil sélectionné (compétences, demandes)
 │   ├── recherche.html                       # recherche de profils
 │   ├── gestion.html                          # création personnes/technos, demandes
 │   ├── questionnaire.html                     # auto-évaluation groupée
@@ -249,7 +261,12 @@ natif dans une requête d'écriture) :
 ```cypher
 MATCH (a:AuditEvent {id: $id})
 OPTIONAL MATCH (a)-[:AUDIT_CTX]->(c:Contexte)
-MERGE (p:Personne {nom: a.personne})
+
+FOREACH (_ IN CASE WHEN a.personne IS NOT NULL THEN [1] ELSE [] END |
+  MERGE (:Personne {nom: a.personne})
+)
+WITH a, c
+OPTIONAL MATCH (p:Personne {nom: a.personne})
 WITH a, p, c
 OPTIONAL MATCH (p)-[r:COMPETENCE]->(c)
 WITH a, p, c, r
@@ -258,7 +275,7 @@ FOREACH (_ IN CASE WHEN a.type = "COMPETENCE_REQUEST" AND r IS NOT NULL THEN [1]
   DELETE r
 )
 FOREACH (_ IN CASE WHEN a.type = "COMPETENCE_REQUEST" AND c IS NOT NULL
-                     AND NOT (a.after_description CONTAINS "suppression")
+                     AND NOT coalesce(a.demande_suppression, false)
                 THEN [1] ELSE [] END |
   MERGE (p)-[r2:COMPETENCE]->(c)
     ON CREATE SET r2.createdAt = datetime()
@@ -278,6 +295,25 @@ SET a.status = "VALIDATED", a.manager = $manager,
     a.decisionAt = datetime(), a.decisionComment = $comment
 RETURN 1 AS closed_count
 ```
+
+> **Deux corrections apportées à ce bloc** (voir §10 pour le détail complet
+> problème/cause/correction) :
+> - Le `MERGE (p:Personne {nom: a.personne})` initial était **inconditionnel** :
+>   pour un `TECHNO_CREATE` (qui ne renseigne pas `a.personne`), Cypher
+>   levait une erreur (`Cannot merge... null property value for 'nom'`),
+>   ce qui faisait **échouer toute validation d'une nouvelle technologie**
+>   avec une erreur 500. Le `MERGE` est maintenant conditionné à
+>   `a.personne IS NOT NULL` (`FOREACH` dédié), suivi d'un simple
+>   `OPTIONAL MATCH` pour retrouver `p` dans les autres cas — sans risque
+>   d'erreur si `a.personne` est absent.
+> - La détection d'une **demande de suppression de compétence** ne repose
+>   plus sur un test de sous-chaîne fragile (`a.after_description CONTAINS
+>   "suppression"`, qui se déclenchait par erreur dès qu'un commentaire
+>   libre de modification contenait ce mot — voir §10) mais sur le champ
+>   booléen dédié `a.demande_suppression`, positionné explicitement par le
+>   frontend (`demande_suppression: true` uniquement dans
+>   `profil_detail.html::deleteCompetence()`, jamais dans le flux de
+>   modification).
 
 **Pour ajouter un nouveau type d'`AuditEvent`**, c'est ici — dans
 `backend/routers/historique.py`, fonction `decide_competence_request` —
@@ -479,7 +515,7 @@ Cypher sont paramétrées.
 |---|---|---|
 | `GET` | `/personnes` | Liste tous les noms de `Personne`. |
 | `POST` | `/personnes` | Crée un `AuditEvent PERSON_CREATE` (`PROPOSED`) — ne crée **pas** directement la `Personne` (voir §10, limite connue). |
-| `POST` | `/personnes/{nom}/competences/demandes` | Crée un `AuditEvent COMPETENCE_REQUEST` (`PROPOSED`) ; fonctionne même si la `Personne` n'existe pas encore ; crée/relie au besoin le `Contexte`, `Techno` (doit déjà exister), `Domaine`, `Version` (`MERGE`, création si absents). |
+| `POST` | `/personnes/{nom}/competences/demandes` | Crée un `AuditEvent COMPETENCE_REQUEST` (`PROPOSED`) ; fonctionne même si la `Personne` n'existe pas encore ; crée/relie au besoin le `Contexte`, `Techno` (doit déjà exister), `Domaine`, `Version` (`MERGE`, création si absents). Le payload (`models.CompetenceRequest`) porte un champ `demande_suppression: bool` (défaut `false`), stocké tel quel sur l'`AuditEvent` — voir §4.2 pour son rôle exact à la validation. |
 | `POST` | `/personnes/{nom}/suppression` | Crée un `AuditEvent PERSON_DELETE` (`PROPOSED`) — demande de suppression soumise à validation. |
 | `DELETE` | `/personnes/{nom}` | Suppression **immédiate** et définitive (`DETACH DELETE`), hors workflow. |
 | `GET` | `/personnes/{nom}/competences` | Compétences réelles (validées) d'une personne, filtrables par techno/domaine/version. |
@@ -517,13 +553,20 @@ Cypher sont paramétrées.
 | Méthode | Route | Comportement |
 |---|---|---|
 | `GET` | `/historique` | Liste les `AuditEvent`, filtrable par personne/techno/statut/type/période (`from`/`to`), triés par date décroissante, limité (`limit`, max 500). |
-| `PUT` | `/historique/{event_id}/decision` | Applique une décision `VALIDATED`/`REJECTED` — voir §4 pour le détail complet. |
+| `PUT` | `/historique/{event_id}/decision` | Applique une décision `VALIDATED`/`REJECTED` — voir §4 pour le détail complet. **Réservé `ADMIN`** (`auth_deps.require_admin`) : corrigé, cette route n'exigeait auparavant que la présence du header `X-User` (n'importe quel utilisateur, même non-admin, pouvait valider/rejeter une demande) — voir §10. |
 
 #### `routers/graph.py` (pas de préfixe)
 
 | Méthode | Route | Comportement |
 |---|---|---|
-| `GET` | `/graph?personne=...` | Construit un objet `{nodes, edges}` au format attendu par la librairie `vis-network`, à partir des compétences réelles de la personne — utilisé par `profils.html`. |
+| `GET` | `/graph?personne=...` | Construit un objet `{nodes, edges}` au format attendu par la librairie `vis-network`, à partir des compétences actives de la personne (chaque nœud techno porte aussi `category`, résolue via `APPARTIENT_A`) — utilisé par `profils.html` pour le graphe individuel. |
+| `GET` | `/graph/global` | Même format `{nodes, edges}`, mais pour **toutes** les personnes et technologies reliées par au moins une compétence active — utilisé par `profils.html` pour la vue d'ensemble affichée quand aucune personne n'est sélectionnée. |
+
+#### `routers/stats.py` — préfixe `/stats`
+
+| Méthode | Route | Comportement |
+|---|---|---|
+| `GET` | `/stats/niveau3-par-categorie?category=...` (paramètre répétable) | Pour chaque `TechnoCategory` demandée, retourne `{category, personnes}` : nombre de personnes distinctes ayant au moins une compétence active de niveau 3 sur une techno de cette catégorie (`0` explicite si aucune, pas d'omission). Alimente les indicateurs clés de `index.html`. |
 
 #### `routers/questionnaire.py` (pas de préfixe)
 
@@ -584,8 +627,9 @@ garder une interface cohérente.
 | Fichier | Rôle | Endpoints API appelés |
 |---|---|---|
 | `login.html` | Connexion (email + mot de passe). Ne charge **pas** `common.js` (logique de session dupliquée localement puisque cette page précède justement l'existence d'une session). | `POST /auth/login` |
-| `index.html` | Accueil, liens d'accès rapide vers les pages principales. | *(aucun)* |
-| `profils.html` | Sélection d'une personne, tableau de ses compétences, visualisation graphe (`vis-network`), demandes de modification/suppression de compétence. | `GET /personnes`, `GET /personnes/{nom}`, `GET /personnes/{nom}/competences`, `POST /personnes/{nom}/competences/demandes`, `GET /graph` |
+| `index.html` | Accueil, indicateurs clés (KPI niveau 3 par catégorie + totaux, calculés en temps réel) et liens d'accès rapide vers les pages principales. | `GET /stats/niveau3-par-categorie`, `GET /personnes`, `GET /ref/technos` |
+| `profils.html` | Sélection d'une personne (ou aucune) et visualisation graphe `vis-network` — graphe individuel si une personne est sélectionnée, graphe global (toutes personnes/technologies) sinon. Sous le sélecteur : boutons « Modifier le profil » (redirige vers `profil_detail.html`) et « Supprimer le profil » (demande de suppression de la personne). Ne contient plus le tableau de compétences (déplacé dans `profil_detail.html`). | `GET /personnes`, `GET /graph`, `GET /graph/global`, `POST /personnes/{nom}/suppression` |
+| `profil_detail.html` | Sous-page de `profils.html` (accédée via `?personne=<nom>`) : tableau des compétences réelles, demandes en attente, actions Modifier/Supprimer une compétence (créent une `COMPETENCE_REQUEST`, soumise à validation). | `GET /personnes/{nom}/competences`, `GET /personnes/{nom}/demandes`, `POST /personnes/{nom}/competences/demandes` |
 | `recherche.html` | Recherche multicritère de profils. | `GET /ref/techno-categories`, `GET /ref/domaines`, `GET /ref/versions`, `GET /ref/technos`, `GET /competences/contexte` |
 | `gestion.html` | Création de personnes, création de technologies (demandes), soumission de demandes de compétence. | `GET`/`POST /personnes`, `GET /ref/techno-categories`, `GET /ref/domaines`, `GET /ref/versions`, `POST /ref/technos`, `POST /personnes/{nom}/competences/demandes` |
 | `questionnaire.html` | Auto-déclaration groupée de compétences. | `GET /personnes`, `POST /questionnaire` |
@@ -676,7 +720,8 @@ CMD ["nginx", "-g", "daemon off;"]
 `proxy/nginx.conf` route `/api/` vers `http://backend:8000/` et tout le
 reste (`/`) vers `http://frontend:80/`, en propageant les en-têtes
 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` — **c'est le
-seul service exposé publiquement en usage serveur cible** (port 80).
+seul service exposé publiquement en usage serveur cible** (port hôte
+publié actuellement : `8088`, voir §1.1).
 
 ### 7.5 Scripts (`scripts/`)
 
@@ -804,17 +849,52 @@ comme modèle le plus simple).
 ## 10. Limites connues et dette technique
 
 Cette section recense honnêtement les points connus, pour éviter que de
-futures évolutions ne les redécouvrent par surprise :
+futures évolutions ne les redécouvrent par surprise.
 
-- **`PERSON_CREATE` sans effet câblé à la validation** : contrairement aux
-  autres types d'`AuditEvent`, `historique.py` ne contient pas de bloc
-  `FOREACH` dédié à `PERSON_CREATE` — or `personnes.py::create_personne`
-  crée bien un `AuditEvent PERSON_CREATE`. En pratique, la ligne `MERGE
-  (p:Personne {nom: a.personne})` présente en tête du bloc Cypher partagé
-  (§4.2) s'exécute pour **tous** les types d'event (elle n'est pas dans un
-  `FOREACH` conditionné), ce qui crée effectivement la personne au passage
-  — mais ce comportement n'est pas explicite dans le code et mérite d'être
-  vérifié avant toute modification de ce bloc.
+### 10.1 Corrections apportées récemment (pour référence)
+
+Trois bugs réels ont été identifiés et corrigés lors d'un audit complet du
+workflow de demande/validation (création, modification, suppression de
+compétence, validation, rejet — testé de bout en bout) :
+
+1. **Validation d'une nouvelle technologie toujours en échec (500)** :
+   `historique.py` exécutait `MERGE (p:Personne {nom: a.personne})` de
+   façon inconditionnelle en tête du bloc Cypher partagé (§4.2). Pour un
+   `TECHNO_CREATE` (qui ne renseigne jamais `a.personne`), Neo4j refusait
+   ce `MERGE` avec une erreur sémantique (`null property value for
+   'nom'`), et la requête `PUT /historique/{id}/decision` échouait
+   systématiquement avec un 500 — **aucun `TECHNO_CREATE` n'avait donc
+   jamais pu être validé avec succès en production** (confirmé : la base
+   de données restaurée ne contenait aucun `AuditEvent TECHNO_CREATE`
+   `VALIDATED`, uniquement des technologies déjà présentes autrement).
+   Corrigé en conditionnant ce `MERGE` à `a.personne IS NOT NULL`.
+2. **Perte silencieuse d'une compétence lors d'une simple modification** :
+   une demande de suppression de compétence était signalée en passant le
+   texte littéral `"suppression"` dans le champ libre `description`, et
+   `historique.py` testait `a.after_description CONTAINS "suppression"`
+   pour décider de (re)créer ou non la relation `COMPETENCE` à la
+   validation. Le même champ `description` étant rempli librement par
+   l'utilisateur lors d'une **modification** (`profils.html::
+   editCompetence`, aujourd'hui `profil_detail.html`) ou d'un **ajout**
+   (`gestion.html`), tout commentaire légitime contenant le mot
+   « suppression » (ex. « mise à jour suite à la suppression de l'ancienne
+   instance ») provoquait la suppression réelle et silencieuse de la
+   compétence à la validation — sans qu'aucune erreur ne soit visible : la
+   décision apparaissait normalement comme `VALIDATED`. Corrigé par
+   l'ajout d'un champ booléen dédié `demande_suppression` (porté par
+   `models.CompetenceRequest`, propagé sur l'`AuditEvent`), qui remplace
+   le test de sous-chaîne — voir §4.2.
+3. **`PUT /historique/{event_id}/decision` ne vérifiait pas le rôle
+   `ADMIN`** : la route utilisait seulement `utils.get_user` (présence du
+   header `X-User`, sans vérifier ni l'existence du compte ni son rôle),
+   alors que la documentation et l'interface (page `validation.html`,
+   masquée aux non-admins) présentent cette action comme réservée aux
+   administrateurs. N'importe quel utilisateur connaissant l'API pouvait
+   donc valider ou rejeter une demande. Corrigé par l'ajout de
+   `auth_deps.require_admin`.
+
+### 10.2 Limites connues restantes
+
 - **Pas de type `TECHNO_DELETE`/`DOMAINE_DELETE`/`VERSION_DELETE`** : ces
   entités référentielles ne peuvent pas être supprimées via le workflow
   (seul `DELETE /contextes/{cle}` existe, avec sa propre logique). Un
@@ -836,3 +916,14 @@ futures évolutions ne les redécouvrent par surprise :
   réellement référencée par `frontend/Dockerfile` (`default.conf`) avant
   toute modification de la configuration Nginx du frontend.
 - **`backend/security.py` non branché** — voir §5.6 et §8.3.
+- **Catalogue de `questionnaire.html` découplé du référentiel réel** : la
+  constante JS `QUESTIONNAIRE` (catégories/technos proposées dans l'auto-
+  évaluation) est codée en dur dans la page, indépendamment des `Techno`/
+  `TechnoCategory` réellement présents en base (`GET /ref/technos` n'est
+  jamais appelé par cette page). Ajouter une technologie via ce catalogue
+  (ex. Elasticsearch) ne crée pas automatiquement les nœuds `Techno`/
+  `TechnoCategory` correspondants : il faut les créer séparément via la
+  page Gestion (workflow `TECHNO_CREATE` habituel) pour qu'ils soient
+  effectivement utilisables partout (Recherche, Synthèse...). Une future
+  évolution pourrait générer ce catalogue dynamiquement depuis `GET
+  /ref/technos` + `GET /ref/techno-categories` plutôt que de le dupliquer.
