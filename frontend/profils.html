@@ -235,6 +235,10 @@ function cssVar(name, fallback) {
   return value || fallback;
 }
 
+function isDarkMode() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
 function styleGraphData(data, centralPersonne) {
   const primary = cssVar("--primary", "#3b82f6");
   const primary2 = cssVar("--primary-2", "#2563eb");
@@ -246,6 +250,7 @@ function styleGraphData(data, centralPersonne) {
   });
 
   const maxPopularity = Math.max(1, ...Array.from(edgesByTechnoNode.values()).map(l => l.length));
+  const labelColor = isDarkMode() ? "#f8fafc" : "#0f172a";
 
   const nodes = data.nodes.map(n => {
     if (n.type === "personne") {
@@ -255,7 +260,7 @@ function styleGraphData(data, centralPersonne) {
         shape: "dot",
         color: { background: primary, border: primary2 },
         size: isCentral ? 32 : 22,
-        font: { size: isCentral ? 15 : 12, color: "#0f172a" }
+        font: { size: isCentral ? 15 : 12, color: labelColor }
       };
     }
 
@@ -268,7 +273,7 @@ function styleGraphData(data, centralPersonne) {
       shape: "dot",
       color: colors,
       size: 14 + rarity * 18,
-      font: { size: 11 }
+      font: { size: 11, color: labelColor }
     };
   });
 

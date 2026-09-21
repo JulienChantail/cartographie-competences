@@ -1047,8 +1047,8 @@ textarea::placeholder {
 }
 
 /* Les tableaux .zebra ont un fond de ligne toujours blanc (cf. "Carte
-   résultat" plus haut) : les boutons qui suivent le thème (fond/texte
-   clairs en mode sombre) y deviennent illisibles (texte blanc sur blanc).
+   résultat" plus haut) : les éléments qui suivent le thème (texte clair
+   en mode sombre) y deviennent illisibles (texte blanc sur blanc).
    On les force donc dans le même style clair que le reste de la ligne. */
 .zebra tbody .btn-edit,
 .zebra tbody .btn-secondary {
@@ -1060,5 +1060,9 @@ textarea::placeholder {
 .zebra tbody .btn-edit:hover,
 .zebra tbody .btn-secondary:hover {
   background: rgba(15, 23, 42, 0.12);
+}
+
+.zebra tbody .pill {
+  color: #111827;
 }
 
