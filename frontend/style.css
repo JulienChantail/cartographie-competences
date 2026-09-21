@@ -476,11 +476,6 @@ td.right {
   text-align: right;
 }
 
-/* Zebra (optional: add class="zebra" to table) */
-table.zebra tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.03);
-}
-
 /* -----------------------------
    8) Pills / Badges / Status
 ----------------------------- */
@@ -1049,5 +1044,21 @@ textarea {
 input::placeholder,
 textarea::placeholder {
   color: #6b7280 !important;
+}
+
+/* Les tableaux .zebra ont un fond de ligne toujours blanc (cf. "Carte
+   résultat" plus haut) : les boutons qui suivent le thème (fond/texte
+   clairs en mode sombre) y deviennent illisibles (texte blanc sur blanc).
+   On les force donc dans le même style clair que le reste de la ligne. */
+.zebra tbody .btn-edit,
+.zebra tbody .btn-secondary {
+  background: rgba(15, 23, 42, 0.06);
+  color: #111827;
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+.zebra tbody .btn-edit:hover,
+.zebra tbody .btn-secondary:hover {
+  background: rgba(15, 23, 42, 0.12);
 }
 
