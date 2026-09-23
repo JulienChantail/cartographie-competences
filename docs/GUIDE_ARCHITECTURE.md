@@ -37,6 +37,7 @@ Navigateur  ───────▶ │   proxy (Nginx, port 80)    │
                    │                                   │
                    ▼                                   ▼
    /            → frontend (Nginx statique)     /api/ → backend (FastAPI, :8000)
+                                                 (production : /cartographie/api/, voir remarque ci-dessous)
                                                               │
                                                               ▼
                                                     neo4j (Bolt :7687 / Browser :7474)
@@ -47,24 +48,35 @@ Les 4 services (`neo4j`, `backend`, `frontend`, `proxy`) sont définis dans
 (résolution DNS interne par nom de service).
 
 **Particularité importante** : en environnement de développement local, le
-frontend n'appelle **pas** l'API via `/api/` (le chemin du proxy) mais
-**directement** sur `http://localhost:8000`. Ce choix est fait dans le code
-JavaScript lui-même (`frontend/common.js` et `frontend/login.html`) :
+frontend n'appelle **pas** l'API via le proxy mais **directement** sur
+`http://localhost:8000`. Ce choix est fait dans le code JavaScript lui-même
+(`frontend/common.js` et `frontend/login.html`) :
 
 ```js
 const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   ? "http://localhost:8000"
-  : "/api";
+  : "/cartographie/api";
 ```
 
 Autrement dit :
 - Page ouverte sur `localhost`/`127.0.0.1` → appels directs au port `8000`
   du conteneur `backend` (le proxy n'est alors pas sollicité pour l'API,
   seulement potentiellement pour servir les pages statiques si l'utilisateur
-  passe par le port 80).
-- Toute autre URL (nom de domaine de production) → appels relatifs `/api/...`,
-  qui transitent par le `proxy` Nginx, lequel les redirige en interne vers
-  `http://backend:8000/`.
+  y accède via le port `8088`, voir l'encart ci-dessous sur ce mapping).
+- Toute autre URL (nom de domaine de production) → appels relatifs
+  `/cartographie/api/...`.
+
+> **Préfixe `/cartographie` : géré par le reverse-proxy externe du serveur
+> DESERVE.** Ni `proxy/nginx.conf` ni `frontend/default.conf` (§7.1, §7.3,
+> §7.4) ne connaissent ce préfixe — ils ne routent que `/api/` vers
+> `backend:8000`. C'est le reverse-proxy en amont sur le serveur DESERVE
+> (hors du périmètre de ce dépôt, voir le guide d'installation, §9.5) qui
+> prend en charge `/cartographie/` avant que la requête n'atteigne le
+> service `proxy` de ce projet — confirmé fonctionnel en production. À
+> reproduire pour tout nouvel environnement de production (nouveau serveur,
+> nouveau nom de domaine) : sans ce reverse-proxy (ou une configuration
+> équivalente), les appels API à `/cartographie/api/...` ne seraient pas
+> routés vers le backend par ce projet seul.
 
 C'est pourquoi le `proxy` sert avant tout de **point d'entrée unique pour un
 déploiement serveur** (un seul port exposé côté conteneur `proxy` — port
@@ -130,7 +142,7 @@ tester directement l'application ou l'API (`http://localhost:8000/docs`).
 
 ```
 (Personne)-[:COMPETENCE {niveau, actif, description, createdAt, updatedAt}]->(Contexte)
-(Personne)-[:MAITRISE]->(Techno)                       # matérialisation, tenue à jour en même temps que COMPETENCE
+(Personne)-[:MAITRISE]->(Techno)                       # voir remarque ci-dessous : PAS tenue à jour dans le cas général
 (Contexte)-[:CTX_TECHNO]->(Techno)
 (Contexte)-[:CTX_DOMAINE]->(Domaine)
 (Contexte)-[:CTX_VERSION]->(Version)
@@ -138,6 +150,21 @@ tester directement l'application ou l'API (`http://localhost:8000/docs`).
 (AuditEvent)-[:AUDIT_OF]->(Personne)
 (AuditEvent)-[:AUDIT_CTX]->(Contexte)
 ```
+
+> **`MAITRISE` n'est pas fiable comme source de vérité** : dans tout le
+> backend, une seule requête crée cette relation — le `MERGE (p)-[:MAITRISE]->(t)`
+> de `PUT /personnes/{nom}/competences` (`personnes.py::upsert_person_competence`,
+> route qui **contourne** le workflow de demande/validation, voir §4.4).
+> Ni le bloc Cypher de validation d'un `COMPETENCE_REQUEST` ni celui d'un
+> `QUESTIONNAIRE_REQUEST` (§4.2, §4.3) ne la créent — c'est-à-dire que pour
+> le circuit normal de l'application (soumission d'une demande puis
+> validation par un administrateur, très largement le cas majoritaire),
+> `MAITRISE` **n'est jamais posée**. Ne pas s'appuyer sur cette relation
+> pour une requête Cypher ou une évolution : la relation fiable et
+> exhaustive pour savoir « qui maîtrise quoi » est `COMPETENCE` (en
+> remontant via `Contexte`-[:CTX_TECHNO]->`Techno`), utilisée d'ailleurs par
+> `routers/graph.py` et `routers/competences.py` plutôt que `MAITRISE`. Voir
+> §10.2.
 
 ### 2.3 Types d'`AuditEvent`
 
@@ -220,7 +247,7 @@ Projet_cartographie_competences/
 │
 ├── proxy/                          # reverse proxy, point d'entrée unique
 │   ├── Dockerfile                    # image proxy (nginx:1.27-alpine)
-│   └── nginx.conf                     # règles de routage / → frontend, /api/ → backend
+│   └── nginx.conf                     # règles de routage / → frontend, /api/ → backend (voir §1.1 sur /cartographie/api)
 │
 ├── scripts/                        # scripts d'exploitation (shell)
 │   ├── init_server.sh                 # bootstrap serveur : copie .env + docker compose up
@@ -417,13 +444,21 @@ notables :
 
 - `CAPGEMINI_EMAIL_REGEX` : expression régulière qui définit le format
   d'email accepté (`prenom.nom@capgemini.com`, avec tirets optionnels dans
-  prénom/nom). **C'est ici qu'il faut modifier le format attendu** si le
-  domaine ou la convention de nommage change un jour.
+  prénom/nom). Le suffixe `(?:@capgemini\.com)?` est délibérément
+  **optionnel** (le `?` final) : la regex accepte donc aussi bien
+  `prenom.nom@capgemini.com` qu'un simple `prenom.nom` sans domaine.
+  **C'est ici qu'il faut modifier le format attendu** (ou retirer ce
+  caractère optionnel si le besoin d'accepter un identifiant sans domaine
+  disparaît un jour) si le domaine ou la convention de nommage change.
 - `validate_capgemini_email(email)` : normalise (minuscule, espaces
-  retirés) puis valide l'email contre la regex — **sauf** si la valeur est
-  exactement `"admin"`, cas particulier laissé volontairement pour
-  permettre l'amorçage du tout premier compte administrateur (voir le
+  retirés) puis valide l'email contre la regex ci-dessus — **sauf** si la
+  valeur est exactement `"admin"`, cas particulier laissé volontairement
+  pour permettre l'amorçage du tout premier compte administrateur (voir le
   guide d'installation, section 6.2). Lève une `HTTPException(400)` sinon.
+  Utilisée à la fois par `POST /auth/login` et par la création/modification
+  de comptes (`routers/users.py`) : un compte peut donc être créé avec un
+  email sans `@capgemini.com`, conformément au caractère optionnel du
+  suffixe dans la regex.
 - `make_cle(techno, domaine, version)` : construit la clé unique
   `"techno|domaine|version"` utilisée comme identifiant du nœud `Contexte`.
   **Toute évolution du modèle de `Contexte` doit repartir de cette
@@ -666,8 +701,9 @@ d'installation, section 4, pour le détail de chacune) : `NEO4J_USER`,
 `NEO4J_PASSWORD`, `CORS_ORIGINS`, `DEV_AUTH` (service `backend`) ; `NEO4J_AUTH`
 (dérivé de `NEO4J_USER`/`NEO4J_PASSWORD`, service `neo4j`).
 
-Ports publiés vers l'hôte : `80` (`proxy`), `8000` (`backend`), `7474` et
-`7687` (`neo4j`). Le service `frontend` ne publie **aucun** port : il n'est
+Ports publiés vers l'hôte : `8088` (`proxy`, mappé sur son port interne
+`80` — voir §1.1), `8000` (`backend`), `7474` et `7687` (`neo4j`). Le
+service `frontend` ne publie **aucun** port : il n'est
 joignable que depuis les autres conteneurs du réseau `app-network` (par le
 `proxy`), jamais directement depuis l'hôte.
 
@@ -706,7 +742,8 @@ racine web de Nginx. La configuration `default.conf` sert les fichiers
 statiques (`try_files $uri $uri/ /index.html`) et proxifie `/api/` vers
 `http://backend:8000/` — cette dernière règle n'est en pratique pas
 sollicitée en développement local (le frontend appelle directement le port
-`8000`, voir §1.1) mais reste cohérente avec le comportement de production.
+`8000`, voir §1.1) ni en production (où le reverse-proxy externe du
+serveur DESERVE prend en charge `/cartographie/api/` en amont, voir §1.1).
 
 ### 7.4 `proxy/Dockerfile` + `proxy/nginx.conf`
 
@@ -721,7 +758,10 @@ CMD ["nginx", "-g", "daemon off;"]
 reste (`/`) vers `http://frontend:80/`, en propageant les en-têtes
 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` — **c'est le
 seul service exposé publiquement en usage serveur cible** (port hôte
-publié actuellement : `8088`, voir §1.1).
+publié actuellement : `8088`, voir §1.1). Ce fichier ne connaît que le
+préfixe `/api/`, pas `/cartographie/api/` appelé par le frontend en
+production — c'est le reverse-proxy externe du serveur DESERVE qui gère ce
+préfixe en amont, voir §1.1.
 
 ### 7.5 Scripts (`scripts/`)
 
@@ -909,13 +949,21 @@ compétence, validation, rejet — testé de bout en bout) :
   d'évolution déjà préparée (§8.3).
 - **Aucun test automatisé, aucune CI/CD** — toute modification doit être
   vérifiée manuellement (voir §1.4).
-- **Fichiers dupliqués dans le dépôt**, sans impact fonctionnel mais à
-  connaître pour éviter de modifier la mauvaise copie : `frontend/
-  default.conf` et une éventuelle copie `nginx.conf` du même dossier
-  peuvent coexister avec un contenu identique ; vérifier laquelle est
-  réellement référencée par `frontend/Dockerfile` (`default.conf`) avant
-  toute modification de la configuration Nginx du frontend.
+- **Fichiers dupliqués/orphelins dans le dépôt**, sans impact fonctionnel
+  mais à connaître pour éviter de modifier la mauvaise copie ou de perdre
+  du temps dessus : `frontend/default.conf` et `frontend/nginx.conf`
+  coexistent avec un contenu identique ; seul `default.conf` est
+  réellement référencé par `frontend/Dockerfile`. `backend/.env
+  example.txt` (avec un espace dans le nom, extension `.txt`) est un
+  fichier orphelin distinct de `backend/.env.example` — non lu par
+  `python-dotenv` ni par Docker, valeurs obsolètes (`NEO4J_URI` en dur,
+  `CORS_ORIGINS` pointant vers des ports `5173`/`3000` sans rapport avec ce
+  projet) ; ignorable, supprimable sans risque.
 - **`backend/security.py` non branché** — voir §5.6 et §8.3.
+- **Relation `(Personne)-[:MAITRISE]->(Techno)` non fiable** (§2.2) : posée
+  uniquement par la route de bypass `PUT /personnes/{nom}/competences`,
+  jamais par le circuit normal (demande + validation). Ne pas l'utiliser
+  comme source de vérité ; préférer `COMPETENCE` via `Contexte`.
 - **Catalogue de `questionnaire.html` découplé du référentiel réel** : la
   constante JS `QUESTIONNAIRE` (catégories/technos proposées dans l'auto-
   évaluation) est codée en dur dans la page, indépendamment des `Techno`/

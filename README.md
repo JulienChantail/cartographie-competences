@@ -33,14 +33,16 @@ HTML statiques servies telles quelles.
 
 ## Démarrage rapide (poste de développement)
 
-Prérequis : Docker Desktop installé et démarré (voir le guide d'installation
-pour le détail complet, notamment sous Windows/WSL2).
+Prérequis : Docker Engine + Docker Compose installés et démarrés (sous
+Windows, dans une distribution WSL2 — pas de Docker Desktop, voir le guide
+d'installation pour le détail complet).
 
-```powershell
+```bash
 docker compose up --build -d
 ```
 
-Puis ouvrir **http://localhost** dans le navigateur.
+Puis ouvrir **http://localhost:8088** dans le navigateur (port publié par le
+service `proxy`, voir `docker-compose.yml`).
 
 Pour une installation complète depuis un poste totalement vierge (y compris
 la création du tout premier compte administrateur et le peuplement des

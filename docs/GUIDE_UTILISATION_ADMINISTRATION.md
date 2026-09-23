@@ -168,15 +168,19 @@ seules les technologies (`Techno`) sont créables via la page Gestion. Pour
 ajouter un domaine ou une version après l'installation initiale, utiliser
 l'API directement :
 
-```powershell
-curl -X POST http://localhost:8000/ref/domaines -H "Content-Type: application/json" -d "{\"nom\": \"Nouveau domaine\"}"
-curl -X POST http://localhost:8000/ref/versions -H "Content-Type: application/json" -d "{\"nom\": \"Nouvelle version\"}"
+```bash
+curl -X POST http://localhost:8000/ref/domaines -H "Content-Type: application/json" -d '{"nom": "Nouveau domaine"}'
+curl -X POST http://localhost:8000/ref/versions -H "Content-Type: application/json" -d '{"nom": "Nouvelle version"}'
 ```
 
-*(Remplacer `localhost:8000` par l'URL réelle du backend si exécuté depuis
-un poste distinct du serveur.)* Ces deux appels créent directement la
-donnée en base, sans passer par le workflow de validation (comportement
-volontaire de ces deux routes, voir le guide d'architecture).
+*(Sur un poste de développement Windows, exécuter ces commandes dans le
+terminal Ubuntu/WSL, pas dans PowerShell — voir le guide d'installation,
+§2 : `curl` y est un alias vers `Invoke-WebRequest`, incompatible avec cette
+syntaxe. Sur le serveur, un shell bash classique convient. Remplacer
+`localhost:8000` par l'URL réelle du backend si exécuté depuis un poste
+distinct du serveur.)* Ces deux appels créent directement la donnée en
+base, sans passer par le workflow de validation (comportement volontaire de
+ces deux routes, voir le guide d'architecture).
 
 ---
 
@@ -567,9 +571,10 @@ démarre plus, données inaccessibles) :
 
 ### F.4 Mettre à jour Docker Compose / Docker Engine lui-même
 
-Ces mises à jour se font au niveau du système d'exploitation du serveur
-(gestionnaire de paquets, ou Docker Desktop côté poste de développement),
-indépendamment du projet. Vérifier après mise à jour que :
+Ces mises à jour se font au niveau du système d'exploitation (gestionnaire
+de paquets `apt` — sur le serveur comme dans la distribution WSL du poste
+de développement, voir le guide d'installation, §2 et §9.2), indépendamment
+du projet. Vérifier après mise à jour que :
 
 ```bash
 docker compose version
@@ -695,11 +700,15 @@ l'application ni par Neo4j Browser dans un navigateur) :
 docker exec -it cartographie-neo4j bash
 
 # Ouvrir une session Cypher interactive (requêtes sur les données)
-docker exec -it cartographie-neo4j cypher-shell -u neo4j -p <password>
+docker exec -it cartographie-neo4j cypher-shell -a bolt://localhost:7687 -u neo4j -p <password>
 ```
 
 Remplacer `<password>` par la valeur de `NEO4J_PASSWORD` du fichier `.env`
-du serveur (voir le guide d'installation, section 4). Une fois connecté
+du serveur (voir le guide d'installation, section 4). **L'option `-a
+bolt://localhost:7687` est nécessaire** : sans elle, `cypher-shell` utilise
+par défaut le protocole `neo4j://` avec routage, qui échoue à l'intérieur
+du conteneur (`Connection refused`) — testé et confirmé lors de la
+rédaction de ce guide. Une fois connecté
 via `cypher-shell`, toute requête Cypher standard fonctionne (voir I.4
 pour des exemples prêts à l'emploi) ; `:exit` pour quitter.
 
